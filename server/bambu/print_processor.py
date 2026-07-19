@@ -119,6 +119,165 @@ def resolve_spool_for_slot(
     return None
 
 
+def resolve_spool_from_mapped_slots(
+    conn,
+    printer_id: int,
+    material: str | None,
+    color: str | None,
+) -> tuple[int | None, int | None]:
+    """Pick a spool from current AMS slot mappings by material/colour."""
+    rows = conn.execute(
+        """
+        SELECT m.slot, m.spool_id, s.material, s.color_hex, s.color_name
+        FROM ams_slot_mappings m
+        JOIN spools s ON s.id = m.spool_id
+        WHERE m.printer_id = ? AND m.spool_id IS NOT NULL
+        """,
+        (printer_id,),
+    ).fetchall()
+    if not rows:
+        return None, None
+
+    candidates = rows
+    if material:
+        material = material.upper()
+        filtered = [row for row in rows if (row["material"] or "").upper() == material]
+        if filtered:
+            candidates = filtered
+
+    if len(candidates) == 1:
+        row = candidates[0]
+        return int(row["spool_id"]), int(row["slot"])
+
+    if color:
+        best = min(candidates, key=lambda row: _color_distance(color, row["color_hex"]))
+        if _color_distance(color, best["color_hex"]) <= 120:
+            return int(best["spool_id"]), int(best["slot"])
+
+    return None, None
+
+
+def _restore_deducted_usage(
+    conn,
+    *,
+    usage_row: Any,
+    old_spool_id: int,
+    completion_percent: float,
+    restored: list[dict[str, Any]],
+) -> None:
+    grams = scaled_deduction_g(float(usage_row["used_g"]), completion_percent)
+    if grams <= 0:
+        return
+    conn.execute(
+        """
+        UPDATE spools
+        SET remaining_g = COALESCE(remaining_g, 0) + ?,
+            updated_at = datetime('now')
+        WHERE id = ?
+        """,
+        (grams, old_spool_id),
+    )
+    restored.append({"spool_id": int(old_spool_id), "grams": grams})
+    conn.execute(
+        "UPDATE print_usages SET filament_deducted = 0 WHERE id = ?",
+        (usage_row["id"],),
+    )
+
+
+def _apply_usage_relink(
+    conn,
+    *,
+    row: Any,
+    match: dict[str, Any],
+    printer_id: int,
+    completion_percent: float,
+    restored: list[dict[str, Any]],
+) -> None:
+    slot = normalize_ams_slot(match.get("ams_slot"))
+    spool_id = resolve_spool_for_slot(
+        conn,
+        printer_id,
+        slot,
+        match.get("material"),
+        match.get("color"),
+    )
+    old_spool_id = row["spool_id"]
+    if (
+        row["filament_deducted"]
+        and old_spool_id
+        and spool_id
+        and int(old_spool_id) != int(spool_id)
+    ):
+        _restore_deducted_usage(
+            conn,
+            usage_row=row,
+            old_spool_id=int(old_spool_id),
+            completion_percent=completion_percent,
+            restored=restored,
+        )
+
+    conn.execute(
+        """
+        UPDATE print_usages
+        SET ams_slot = ?, spool_id = ?, material = ?, color = ?, resolved = ?
+        WHERE id = ?
+        """,
+        (
+            slot,
+            spool_id,
+            match.get("material") or row["material"],
+            match.get("color") or row["color"],
+            1 if spool_id else 0,
+            row["id"],
+        ),
+    )
+
+
+def relink_usages_from_ams_mappings(conn, job: dict[str, Any]) -> tuple[int, list[dict[str, Any]]]:
+    """Fallback when cloud task data is unavailable: match usage to mapped AMS spools."""
+    pending = conn.execute(
+        """
+        SELECT * FROM print_usages
+        WHERE print_job_id = ? AND used_g > 0
+        """,
+        (job["id"],),
+    ).fetchall()
+    if not pending:
+        return 0, []
+
+    printer_id = int(job.get("printer_id") or 1)
+    completion_percent = float(job.get("completion_percent") or 100.0)
+    restored: list[dict[str, Any]] = []
+    updated = 0
+
+    for row in pending:
+        spool_id, slot = resolve_spool_from_mapped_slots(
+            conn,
+            printer_id,
+            row["material"],
+            row["color"],
+        )
+        if not spool_id or not slot:
+            continue
+        if row["spool_id"] and int(row["spool_id"]) == int(spool_id):
+            continue
+        _apply_usage_relink(
+            conn,
+            row=row,
+            match={
+                "ams_slot": slot,
+                "material": row["material"],
+                "color": row["color"],
+            },
+            printer_id=printer_id,
+            completion_percent=completion_percent,
+            restored=restored,
+        )
+        updated += 1
+
+    return updated, restored
+
+
 def refresh_cloud_print_usage_links(conn, job: dict[str, Any]) -> tuple[int, list[dict[str, Any]]]:
     """Re-resolve AMS slots/spools from Bambu cloud task data before deducting."""
     if job.get("source") != "cloud" or not job.get("bambu_task_id"):
@@ -130,14 +289,14 @@ def refresh_cloud_print_usage_links(conn, job: dict[str, Any]) -> tuple[int, lis
     if not cloud.is_configured():
         return 0, []
 
-    detail = cloud.fetch_task_detail(str(job["bambu_task_id"]))
+    detail = cloud.fetch_task_for_deduction(str(job["bambu_task_id"]))
     if not detail:
-        return 0, []
+        return relink_usages_from_ams_mappings(conn, job)
 
     fresh_usages = cloud.extract_filament_usages(detail)
     weighted_fresh = [usage for usage in fresh_usages if float(usage.get("used_g") or 0) > 0]
     if not weighted_fresh:
-        return 0, []
+        return relink_usages_from_ams_mappings(conn, job)
 
     pending = conn.execute(
         """
@@ -167,54 +326,18 @@ def refresh_cloud_print_usage_links(conn, job: dict[str, Any]) -> tuple[int, lis
         if not match:
             continue
 
-        slot = normalize_ams_slot(match.get("ams_slot"))
-        spool_id = resolve_spool_for_slot(
+        _apply_usage_relink(
             conn,
-            printer_id,
-            slot,
-            match.get("material"),
-            match.get("color"),
-        )
-        old_spool_id = row["spool_id"]
-        if (
-            row["filament_deducted"]
-            and old_spool_id
-            and spool_id
-            and int(old_spool_id) != int(spool_id)
-        ):
-            grams = scaled_deduction_g(float(row["used_g"]), completion_percent)
-            if grams > 0:
-                conn.execute(
-                    """
-                    UPDATE spools
-                    SET remaining_g = COALESCE(remaining_g, 0) + ?,
-                        updated_at = datetime('now')
-                    WHERE id = ?
-                    """,
-                    (grams, old_spool_id),
-                )
-                restored.append({"spool_id": int(old_spool_id), "grams": grams})
-            conn.execute(
-                "UPDATE print_usages SET filament_deducted = 0 WHERE id = ?",
-                (row["id"],),
-            )
-
-        conn.execute(
-            """
-            UPDATE print_usages
-            SET ams_slot = ?, spool_id = ?, material = ?, color = ?, resolved = ?
-            WHERE id = ?
-            """,
-            (
-                slot,
-                spool_id,
-                match.get("material") or row["material"],
-                match.get("color") or row["color"],
-                1 if spool_id else 0,
-                row["id"],
-            ),
+            row=row,
+            match=match,
+            printer_id=printer_id,
+            completion_percent=completion_percent,
+            restored=restored,
         )
         updated += 1
+
+    if updated == 0:
+        return relink_usages_from_ams_mappings(conn, job)
 
     return updated, restored
 

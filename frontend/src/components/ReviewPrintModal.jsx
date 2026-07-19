@@ -3,8 +3,9 @@ import { api } from '../api';
 import { formatUsageG } from '../utils/filaments';
 
 export default function ReviewPrintModal({ printJob, spools, onClose, onSaved }) {
+  const weightedUsages = (printJob.usages || []).filter((usage) => usage.used_g > 0);
   const [assignments, setAssignments] = useState(
-    (printJob.usages || []).map((usage) => ({ usage_id: usage.id, spool_id: usage.spool_id || '' })),
+    weightedUsages.map((usage) => ({ usage_id: usage.id, spool_id: usage.spool_id || '' })),
   );
   const [note, setNote] = useState('');
   const [error, setError] = useState('');
@@ -33,9 +34,12 @@ export default function ReviewPrintModal({ printJob, spools, onClose, onSaved })
     <div className="modal-backdrop" onClick={onClose}>
       <form className="card modal form-grid" onClick={(e) => e.stopPropagation()} onSubmit={submit}>
         <h2>Review print</h2>
-        <p className="muted">{printJob.title} — assign a spool for each AMS slot usage.</p>
+        <p className="muted">
+          {printJob.title} — confirm which spool was used
+          {weightedUsages.length === 1 ? '' : ` (${weightedUsages.length} materials)`}.
+        </p>
         {error && <div className="danger">{error}</div>}
-        {(printJob.usages || []).map((usage) => (
+        {weightedUsages.map((usage) => (
           <div key={usage.id} className="card" style={{ background: 'var(--panel-2)' }}>
             <strong>Slot {usage.ams_slot || '?'}</strong>
             <div className="muted">{usage.material} {usage.color || ''} — {formatUsageG(usage.used_g)}</div>

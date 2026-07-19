@@ -286,6 +286,38 @@ class BambuCloudClient:
             logger.exception("Failed to fetch task detail %s", task_id)
             return None
 
+    def fetch_task_for_deduction(self, task_id: str) -> dict[str, Any] | None:
+        detail = self.fetch_task_detail(task_id)
+        if detail:
+            return detail
+        for task in self.fetch_tasks(limit=50):
+            candidate = str(task.get("id") or task.get("taskId") or "")
+            if candidate == str(task_id):
+                return task
+        return None
+
+    def _find_nested_ams_mapping(self, obj: Any, depth: int = 0) -> list[int] | None:
+        if depth > 10:
+            return None
+        if isinstance(obj, dict):
+            for key in ("ams_mapping", "amsMapping"):
+                raw = obj.get(key)
+                if isinstance(raw, list) and raw and not isinstance(raw[0], dict):
+                    try:
+                        return [int(value) for value in raw]
+                    except (TypeError, ValueError):
+                        continue
+            for value in obj.values():
+                found = self._find_nested_ams_mapping(value, depth + 1)
+                if found:
+                    return found
+        elif isinstance(obj, list):
+            for item in obj:
+                found = self._find_nested_ams_mapping(item, depth + 1)
+                if found:
+                    return found
+        return None
+
     def extract_ams_mapping(self, task: dict[str, Any]) -> list[int] | None:
         profile = task.get("profile") or task
         for key in ("ams_mapping", "amsMapping", "ams_detail_mapping", "amsDetailMapping"):
@@ -298,7 +330,7 @@ class BambuCloudClient:
                 return [int(value) for value in raw]
             except (TypeError, ValueError):
                 continue
-        return None
+        return self._find_nested_ams_mapping(task)
 
     def _usages_from_ams_detail_mapping(self, task: dict[str, Any]) -> list[dict[str, Any]] | None:
         profile = task.get("profile") or task

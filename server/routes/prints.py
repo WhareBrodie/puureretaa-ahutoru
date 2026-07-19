@@ -236,6 +236,28 @@ def resolve_print_review_v2(print_id: int, data: dict[str, Any]) -> dict[str, An
             ).fetchone()
             if not usage:
                 continue
+            old_spool_id = usage["spool_id"]
+            if (
+                spool_id
+                and old_spool_id
+                and usage["filament_deducted"]
+                and int(old_spool_id) != int(spool_id)
+            ):
+                grams = scaled_deduction_g(float(usage["used_g"]), float(job["completion_percent"]))
+                if grams > 0:
+                    conn.execute(
+                        """
+                        UPDATE spools
+                        SET remaining_g = COALESCE(remaining_g, 0) + ?,
+                            updated_at = datetime('now')
+                        WHERE id = ?
+                        """,
+                        (grams, old_spool_id),
+                    )
+                conn.execute(
+                    "UPDATE print_usages SET filament_deducted = 0 WHERE id = ?",
+                    (usage_id,),
+                )
             conn.execute(
                 "UPDATE print_usages SET spool_id = ?, resolved = ? WHERE id = ?",
                 (spool_id, 1 if spool_id else 0, usage_id),
@@ -348,10 +370,11 @@ def apply_missing_deductions(print_id: int) -> dict[str, Any]:
                 "restored": restored,
                 "deducted": [],
                 "print": get_print(print_id),
-                "message": "Wrong spool restored; could not deduct — open Review to assign the correct spool",
+                "message": "Wrong spool restored — click Review on this print to pick the correct spool",
             }
         raise ValueError(
-            "no filament could be deducted — open Review to assign the correct spool"
+            "Could not deduct automatically — click Review on this print in the Prints list, "
+            "pick the correct spool, then Apply deductions"
         )
 
     return {"ok": True, "restored": restored, "deducted": deducted, "print": get_print(print_id)}

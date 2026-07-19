@@ -39,6 +39,11 @@ export default function PrintsPage() {
     }
   };
 
+  const showReview = (print) =>
+    print.needs_review ||
+    (['cloud', 'mqtt', 'ftps'].includes(print.source) &&
+      (print.usages || []).some((usage) => usage.used_g > 0));
+
   const showDeduct = (print) =>
     ['cloud', 'mqtt', 'ftps'].includes(print.source) &&
     (print.usages || []).some((usage) => usage.used_g > 0);
@@ -108,7 +113,7 @@ export default function PrintsPage() {
                 <td>
                   <div className="toolbar" style={{ justifyContent: 'flex-end' }}>
                     <button className="secondary" onClick={() => setEditPrint(print)}>Edit</button>
-                    {print.needs_review && (
+                    {showReview(print) && (
                       <button className="secondary" onClick={() => setReviewPrint(print)}>Review</button>
                     )}
                     {showDeduct(print) && (
