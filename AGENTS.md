@@ -54,7 +54,7 @@ Sync baseline lives in `cloud_sync_baseline` (timestamp). Poll fetches the **50 
 
 **Prints → Delete** removes a print and restores any filament that print deducted back to linked spools.
 
-Auto-import deducts filament **per mapped AMS slot**, even when other slots on the same print still need review. Each usage line tracks `filament_deducted` so restore/delete/review cannot double-deduct. For prints imported before this fix, use **Prints → Deduct** (`POST /api/prints/:id/apply-deductions`) to apply pending deductions once linked spools are correct.
+Auto-import deducts filament **per mapped AMS slot**, even when other slots on the same print still need review. Cloud import uses Bambu’s `ams_mapping` / `amsDetailMapping` to translate slicer filament IDs into physical AMS tray numbers (slicer order ≠ AMS slot). Each usage line tracks `filament_deducted` so restore/delete/review cannot double-deduct. **Prints → Deduct** re-fetches the cloud task, fixes tray mapping, restores Lilac (or any wrongly deducted spool) if the link changed, then deducts from the correct mapped spool — no need to delete the print.
 
 Print usage is always rounded **up** to one decimal place for display and spool deduction (e.g. 11.61 g → 11.7 g).
 

@@ -33,21 +33,22 @@ def deduct_print_usage(
     spool_id: int,
     used_g: float,
     completion_percent: float,
-) -> None:
+) -> float:
     row = conn.execute(
         "SELECT filament_deducted FROM print_usages WHERE id = ?",
         (usage_id,),
     ).fetchone()
     if row and row["filament_deducted"]:
-        return
+        return 0.0
     grams = scaled_deduction_g(used_g, completion_percent)
     if grams <= 0:
-        return
+        return 0.0
     deduct_spool_weight(conn, spool_id, grams)
     conn.execute(
         "UPDATE print_usages SET filament_deducted = 1 WHERE id = ?",
         (usage_id,),
     )
+    return grams
 
 
 def _color_distance(hex_a: str | None, hex_b: str | None) -> int:
@@ -116,6 +117,106 @@ def resolve_spool_for_slot(
                 if active:
                     return active
     return None
+
+
+def refresh_cloud_print_usage_links(conn, job: dict[str, Any]) -> tuple[int, list[dict[str, Any]]]:
+    """Re-resolve AMS slots/spools from Bambu cloud task data before deducting."""
+    if job.get("source") != "cloud" or not job.get("bambu_task_id"):
+        return 0, []
+
+    from bambu.cloud_sync import BambuCloudClient
+
+    cloud = BambuCloudClient()
+    if not cloud.is_configured():
+        return 0, []
+
+    detail = cloud.fetch_task_detail(str(job["bambu_task_id"]))
+    if not detail:
+        return 0, []
+
+    fresh_usages = cloud.extract_filament_usages(detail)
+    weighted_fresh = [usage for usage in fresh_usages if float(usage.get("used_g") or 0) > 0]
+    if not weighted_fresh:
+        return 0, []
+
+    pending = conn.execute(
+        """
+        SELECT * FROM print_usages
+        WHERE print_job_id = ? AND used_g > 0
+        """,
+        (job["id"],),
+    ).fetchall()
+    updated = 0
+    restored: list[dict[str, Any]] = []
+    printer_id = int(job.get("printer_id") or 1)
+    completion_percent = float(job.get("completion_percent") or 100.0)
+
+    for row in pending:
+        match = None
+        for fresh in weighted_fresh:
+            if fresh.get("used_g") == row["used_g"] and (
+                not row["material"]
+                or row["material"] == "UNKNOWN"
+                or fresh.get("material") == row["material"]
+            ):
+                match = fresh
+                break
+        if not match and len(weighted_fresh) == 1 and len(pending) == 1:
+            match = weighted_fresh[0]
+
+        if not match:
+            continue
+
+        slot = normalize_ams_slot(match.get("ams_slot"))
+        spool_id = resolve_spool_for_slot(
+            conn,
+            printer_id,
+            slot,
+            match.get("material"),
+            match.get("color"),
+        )
+        old_spool_id = row["spool_id"]
+        if (
+            row["filament_deducted"]
+            and old_spool_id
+            and spool_id
+            and int(old_spool_id) != int(spool_id)
+        ):
+            grams = scaled_deduction_g(float(row["used_g"]), completion_percent)
+            if grams > 0:
+                conn.execute(
+                    """
+                    UPDATE spools
+                    SET remaining_g = COALESCE(remaining_g, 0) + ?,
+                        updated_at = datetime('now')
+                    WHERE id = ?
+                    """,
+                    (grams, old_spool_id),
+                )
+                restored.append({"spool_id": int(old_spool_id), "grams": grams})
+            conn.execute(
+                "UPDATE print_usages SET filament_deducted = 0 WHERE id = ?",
+                (row["id"],),
+            )
+
+        conn.execute(
+            """
+            UPDATE print_usages
+            SET ams_slot = ?, spool_id = ?, material = ?, color = ?, resolved = ?
+            WHERE id = ?
+            """,
+            (
+                slot,
+                spool_id,
+                match.get("material") or row["material"],
+                match.get("color") or row["color"],
+                1 if spool_id else 0,
+                row["id"],
+            ),
+        )
+        updated += 1
+
+    return updated, restored
 
 
 def process_print_job(

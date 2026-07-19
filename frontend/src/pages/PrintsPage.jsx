@@ -39,17 +39,24 @@ export default function PrintsPage() {
     }
   };
 
-  const hasPendingDeduction = (print) =>
-    (print.usages || []).some(
-      (usage) => usage.spool_id && usage.used_g > 0 && !usage.filament_deducted,
-    );
+  const showDeduct = (print) =>
+    ['cloud', 'mqtt', 'ftps'].includes(print.source) &&
+    (print.usages || []).some((usage) => usage.used_g > 0);
 
   const handleApplyDeductions = async (print) => {
     if (!window.confirm(`Apply filament deduction for "${print.title}" from linked spools?`)) {
       return;
     }
     try {
-      await api.prints.applyDeductions(print.id);
+      const result = await api.prints.applyDeductions(print.id);
+      const restored = (result.restored || [])
+        .map((item) => `restored ${item.grams}g to spool ${item.spool_id}`)
+        .join(', ');
+      const lines = (result.deducted || [])
+        .map((item) => `${item.spool_label || `Spool ${item.spool_id}`} (−${item.grams}g)`)
+        .join(', ');
+      const parts = [restored, lines ? `deducted: ${lines}` : '', result.message || ''].filter(Boolean);
+      window.alert(parts.join('\n') || 'Deduction applied.');
       load();
     } catch (err) {
       setError(err.message);
@@ -104,7 +111,7 @@ export default function PrintsPage() {
                     {print.needs_review && (
                       <button className="secondary" onClick={() => setReviewPrint(print)}>Review</button>
                     )}
-                    {hasPendingDeduction(print) && (
+                    {showDeduct(print) && (
                       <button className="secondary" onClick={() => handleApplyDeductions(print)}>Deduct</button>
                     )}
                     <button type="button" className="secondary danger-text" onClick={() => handleDelete(print)}>Delete</button>

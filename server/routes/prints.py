@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from db import connect, ceil_usage_g, row_to_dict, rows_to_dicts, scaled_deduction_g
-from bambu.print_processor import deduct_print_usage
+from bambu.print_processor import deduct_print_usage, refresh_cloud_print_usage_links
 
 
 def _print_query(where: str = "", params: tuple[Any, ...] = ()) -> str:
@@ -300,32 +300,58 @@ def apply_missing_deductions(print_id: int) -> dict[str, Any]:
         if not job:
             raise KeyError("print not found")
 
+        job_dict = row_to_dict(job)
+        _, restored = refresh_cloud_print_usage_links(conn, job_dict)
+
         usages = conn.execute(
-            "SELECT * FROM print_usages WHERE print_job_id = ?",
+            "SELECT pu.*, s.brand, s.color_name, s.material AS spool_material"
+            " FROM print_usages pu"
+            " LEFT JOIN spools s ON s.id = pu.spool_id"
+            " WHERE pu.print_job_id = ?",
             (print_id,),
         ).fetchall()
         deducted: list[dict[str, Any]] = []
         for usage in usages:
             if not usage["spool_id"] or usage["used_g"] <= 0 or usage["filament_deducted"]:
                 continue
-            grams = scaled_deduction_g(usage["used_g"], job["completion_percent"])
-            deduct_print_usage(
+            grams = deduct_print_usage(
                 conn,
                 usage_id=int(usage["id"]),
                 spool_id=int(usage["spool_id"]),
                 used_g=float(usage["used_g"]),
                 completion_percent=float(job["completion_percent"]),
             )
+            if grams <= 0:
+                continue
             deducted.append(
                 {
                     "usage_id": usage["id"],
                     "spool_id": usage["spool_id"],
                     "ams_slot": usage["ams_slot"],
                     "grams": grams,
+                    "spool_label": " ".join(
+                        part
+                        for part in (
+                            usage["brand"],
+                            usage["spool_material"] or usage["material"],
+                            usage["color_name"],
+                        )
+                        if part
+                    ).strip(),
                 }
             )
 
     if not deducted:
-        raise ValueError("no pending filament deductions for this print")
+        if restored:
+            return {
+                "ok": True,
+                "restored": restored,
+                "deducted": [],
+                "print": get_print(print_id),
+                "message": "Wrong spool restored; could not deduct — open Review to assign the correct spool",
+            }
+        raise ValueError(
+            "no filament could be deducted — open Review to assign the correct spool"
+        )
 
-    return {"ok": True, "deducted": deducted, "print": get_print(print_id)}
+    return {"ok": True, "restored": restored, "deducted": deducted, "print": get_print(print_id)}

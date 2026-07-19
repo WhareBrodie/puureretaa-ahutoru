@@ -286,18 +286,102 @@ class BambuCloudClient:
             logger.exception("Failed to fetch task detail %s", task_id)
             return None
 
+    def extract_ams_mapping(self, task: dict[str, Any]) -> list[int] | None:
+        profile = task.get("profile") or task
+        for key in ("ams_mapping", "amsMapping", "ams_detail_mapping", "amsDetailMapping"):
+            raw = profile.get(key) or task.get(key)
+            if not isinstance(raw, list) or not raw:
+                continue
+            if isinstance(raw[0], dict):
+                continue
+            try:
+                return [int(value) for value in raw]
+            except (TypeError, ValueError):
+                continue
+        return None
+
+    def _usages_from_ams_detail_mapping(self, task: dict[str, Any]) -> list[dict[str, Any]] | None:
+        profile = task.get("profile") or task
+        for key in ("amsDetailMapping", "ams_detail_mapping"):
+            raw = profile.get(key) or task.get(key)
+            if not isinstance(raw, list) or not raw or not isinstance(raw[0], dict):
+                continue
+            usages: list[dict[str, Any]] = []
+            for entry in raw:
+                used_g = ceil_usage_g(
+                    float(
+                        entry.get("usedG")
+                        or entry.get("used_g")
+                        or entry.get("weight")
+                        or 0
+                    )
+                )
+                if used_g <= 0:
+                    continue
+                slot_raw = (
+                    entry.get("slotId")
+                    if entry.get("slotId") is not None
+                    else entry.get("slot_id")
+                    if entry.get("slot_id") is not None
+                    else entry.get("trayId")
+                    if entry.get("trayId") is not None
+                    else entry.get("tray_id")
+                )
+                if slot_raw is None:
+                    continue
+                tray_index = int(slot_raw)
+                if tray_index >= 254:
+                    ams_slot = 1
+                else:
+                    ams_slot = max(1, min(4, tray_index + 1))
+                color = entry.get("color") or entry.get("filamentColor") or ""
+                if color and not str(color).startswith("#"):
+                    color = f"#{str(color)[:6]}"
+                usages.append(
+                    {
+                        "ams_slot": ams_slot,
+                        "material": (entry.get("type") or entry.get("filamentType") or "UNKNOWN").upper(),
+                        "color": color or None,
+                        "used_g": used_g,
+                        "used_m": float(entry.get("usedM") or entry.get("used_m") or 0) or None,
+                    }
+                )
+            if usages:
+                return usages
+        return None
+
+    def map_slicer_filament_to_ams_slot(
+        self,
+        filament_id: int,
+        ams_mapping: list[int] | None,
+    ) -> int:
+        if ams_mapping:
+            slicer_index = max(0, int(filament_id) - 1)
+            if slicer_index < len(ams_mapping):
+                tray_index = int(ams_mapping[slicer_index])
+                if tray_index >= 254:
+                    return 1
+                return max(1, min(4, tray_index + 1))
+        return max(1, min(4, int(filament_id)))
+
     def extract_filament_usages(self, task: dict[str, Any]) -> list[dict[str, Any]]:
+        detail_usages = self._usages_from_ams_detail_mapping(task)
+        if detail_usages:
+            return detail_usages
+
         usages: list[dict[str, Any]] = []
         profile = task.get("profile") or task
         plates = profile.get("plates") or task.get("plates") or []
+        ams_mapping = self.extract_ams_mapping(task)
         for plate in plates:
             for filament in plate.get("filaments") or []:
                 color = filament.get("color") or ""
                 if color and not color.startswith("#"):
                     color = f"#{color[:6]}"
+                filament_id = int(filament.get("id") or len(usages) + 1)
                 usages.append(
                     {
-                        "ams_slot": int(filament.get("id") or len(usages) + 1),
+                        "ams_slot": self.map_slicer_filament_to_ams_slot(filament_id, ams_mapping),
                         "material": (filament.get("type") or "UNKNOWN").upper(),
                         "color": color,
                         "used_g": ceil_usage_g(float(filament.get("used_g") or 0)),
