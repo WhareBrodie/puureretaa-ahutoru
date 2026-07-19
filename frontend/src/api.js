@@ -89,10 +89,14 @@ export const api = {
     updateSlot: (slot, body) => request(`/ams/slots/${slot}`, { method: 'PUT', body: JSON.stringify(body) }),
   },
   exportCsv: () => request('/export/csv'),
-  importCsv: (csv, updateExisting = false) =>
+  importCsv: (csv, updateExisting = false, skipDepleted = false) =>
     request('/import/csv', {
       method: 'POST',
-      body: JSON.stringify({ csv, update_existing: updateExisting }),
+      body: JSON.stringify({
+        csv,
+        update_existing: updateExisting,
+        skip_depleted: skipDepleted,
+      }),
     }),
 };
 

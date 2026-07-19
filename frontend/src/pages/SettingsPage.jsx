@@ -6,6 +6,7 @@ export default function SettingsPage() {
   const [locations, setLocations] = useState([]);
   const [locationForm, setLocationForm] = useState({ name: '', description: '' });
   const [csvText, setCsvText] = useState('');
+  const [skipDepleted, setSkipDepleted] = useState(true);
   const [importResult, setImportResult] = useState(null);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
@@ -59,11 +60,27 @@ export default function SettingsPage() {
 
   const importCsv = async () => {
     try {
-      const result = await api.importCsv(csvText, false);
+      const result = await api.importCsv(csvText, false, skipDepleted);
       setImportResult(result);
       load();
     } catch (err) {
       setError(err.message);
+    }
+  };
+
+  const importCsvFile = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      setCsvText(text);
+      const result = await api.importCsv(text, false, skipDepleted);
+      setImportResult(result);
+      load();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      event.target.value = '';
     }
   };
 
@@ -163,14 +180,23 @@ export default function SettingsPage() {
         <div className="card form-grid">
           <h2>CSV backup</h2>
           <button className="secondary" onClick={exportCsv}>Export spools CSV</button>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', width: 'auto' }}>
+            <input type="checkbox" checked={skipDepleted} onChange={(e) => setSkipDepleted(e.target.checked)} />
+            Skip depleted spools on import (SpoolStock exports)
+          </label>
           <label>
-            Import CSV
+            Import SpoolStock or native CSV file
+            <input type="file" accept=".csv,text/csv" onChange={importCsvFile} />
+          </label>
+          <label>
+            Or paste CSV
             <textarea rows={8} value={csvText} onChange={(e) => setCsvText(e.target.value)} placeholder="Paste CSV export here" />
           </label>
           <button className="secondary" onClick={importCsv}>Import spools</button>
           {importResult && (
             <div className="muted">
-              Created {importResult.created}, updated {importResult.updated}
+              Format: {importResult.format || 'native'} · Created {importResult.created}, updated {importResult.updated}
+              {importResult.skipped_depleted ? `, skipped ${importResult.skipped_depleted} depleted` : ''}
               {importResult.errors?.length ? `, errors: ${importResult.errors.join('; ')}` : ''}
             </div>
           )}

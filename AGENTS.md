@@ -108,7 +108,7 @@ docker compose -f docker-compose.yml -f docker-compose.local.yml up --build
 - `GET/POST/PUT/DELETE /api/spools`, `/api/locations`
 - `GET/POST /api/prints`, `POST /api/prints/:id/review`
 - `GET/PUT /api/ams/slots`, `GET /api/ams/live`
-- `GET /api/export/csv`, `POST /api/import/csv`
+- `GET /api/export/csv`, `POST /api/import/csv` — native export or **SpoolStock export** import (auto-detected)
 - `GET/PUT /api/settings`
 
 ## Deferred (Phase 4)

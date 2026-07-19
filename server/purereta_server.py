@@ -224,7 +224,11 @@ class PureretaHandler(SimpleHTTPRequestHandler):
 
             if parts == ["api", "import", "csv"]:
                 body = self.read_json_body()
-                result = csv_io.import_spools_csv(body.get("csv", ""), update_existing=bool(body.get("update_existing")))
+                result = csv_io.import_spools_csv(
+                    body.get("csv", ""),
+                    update_existing=bool(body.get("update_existing")),
+                    skip_depleted=bool(body.get("skip_depleted")),
+                )
                 self.end_json(200, result)
                 return
 
