@@ -245,6 +245,10 @@ class PureretaHandler(SimpleHTTPRequestHandler):
                 self.end_json(200, ams.refresh_from_printer())
                 return
 
+            if parts == ["api", "ams", "clear-rfid-learns"]:
+                self.end_json(200, ams.clear_rfid_learns())
+                return
+
             if len(parts) == 4 and parts[0] == "api" and parts[1] == "prints" and parts[3] == "review":
                 self.end_json(200, prints.resolve_print_review_v2(int(parts[2]), self.read_json_body()))
                 return

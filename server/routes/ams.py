@@ -39,6 +39,12 @@ def list_ams_slots(printer_id: int | None = None) -> list[dict[str, Any]]:
         return rows_to_dicts(rows)
 
 
+def clear_rfid_learns() -> dict[str, int]:
+    with connect() as conn:
+        cur = conn.execute("DELETE FROM bambu_filament_rfid")
+        return {"deleted": cur.rowcount}
+
+
 def update_ams_slot(slot: int, data: dict[str, Any], printer_id: int | None = None) -> dict[str, Any]:
     if slot < 1 or slot > 4:
         raise ValueError("slot must be 1-4")
@@ -49,6 +55,7 @@ def update_ams_slot(slot: int, data: dict[str, Any], printer_id: int | None = No
             ).fetchone()
             printer_id = printer["id"] if printer else 1
         spool_id = data.get("spool_id")
+        tray_override = data.get("tray") if isinstance(data.get("tray"), dict) else None
         conn.execute(
             """
             INSERT INTO ams_slot_mappings (printer_id, slot, spool_id, updated_at)
@@ -66,8 +73,8 @@ def update_ams_slot(slot: int, data: dict[str, Any], printer_id: int | None = No
             """,
             (printer_id, slot),
         ).fetchone()
-        if spool_id and mapping:
-            tray = {
+        if spool_id:
+            tray = tray_override or {
                 "tag_uid": mapping["mqtt_tag_uid"],
                 "tray_info_idx": mapping["mqtt_tray_info_idx"],
                 "tray_type": mapping["mqtt_tray_type"],

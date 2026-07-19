@@ -31,12 +31,29 @@ export default function AmsPage() {
 
   const updateSlot = async (slot, spoolId) => {
     try {
-      await api.ams.updateSlot(slot, { spool_id: spoolId ? Number(spoolId) : null });
+      const tray = mqtt[String(slot)] || {};
+      await api.ams.updateSlot(slot, {
+        spool_id: spoolId ? Number(spoolId) : null,
+        tray,
+      });
       setMessage(
         spoolId
-          ? `Slot ${slot} set — if RFID is present, that product is learned once for all future loads`
+          ? `Slot ${slot} mapped — RFID product learned for this tray only`
           : `Cleared slot ${slot}`,
       );
+      load();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const clearRfidLearns = async () => {
+    if (!window.confirm('Clear all learned RFID products? You will need to re-pick each AMS slot once.')) {
+      return;
+    }
+    try {
+      const result = await api.ams.clearRfidLearns();
+      setMessage(`Cleared ${result.deleted || 0} learned RFID product(s). Re-map each slot from the dropdown.`);
       load();
     } catch (err) {
       setError(err.message);
@@ -73,14 +90,18 @@ export default function AmsPage() {
         <div>
           <h1>AMS setup</h1>
           <p>
-            Map a slot once per <strong>filament product</strong> (e.g. PLA Basic Black) while RFID is visible —
-            the app remembers that RFID forever. Later loads of the same product auto-pick the open spool
-            (partially used; if all are new, any match). Non-RFID filament still needs manual slot picks.
+            Pick the correct spool per slot once — your choice is kept; MQTT will not change it.
+            RFID is learned only when you use the dropdown (one product per tray colour).
           </p>
         </div>
-        <button type="button" className="secondary" disabled={refreshing} onClick={refreshFromPrinter}>
-          {refreshing ? 'Refreshing…' : 'Refresh from printer'}
-        </button>
+        <div className="toolbar">
+          <button type="button" className="secondary" disabled={refreshing} onClick={refreshFromPrinter}>
+            {refreshing ? 'Refreshing…' : 'Refresh from printer'}
+          </button>
+          <button type="button" className="secondary" onClick={clearRfidLearns}>
+            Clear learned RFID
+          </button>
+        </div>
       </div>
 
       {error && <div className="card danger">{error}</div>}

@@ -167,7 +167,7 @@ def teach_from_spool(conn, spool_id: int, tray: dict[str, Any]) -> None:
 
 
 def sync_slot_for_tray(conn, printer_id: int, slot: int, tray: dict[str, Any]) -> int | None:
-    """Update MQTT tray fields; learn products by tray_info_idx without clobbering manual slot picks."""
+    """Update MQTT tray fields only. Never change an assigned spool_id from MQTT — that caused dropdowns to jump."""
     conn.execute(
         """
         UPDATE ams_slot_mappings
@@ -188,37 +188,32 @@ def sync_slot_for_tray(conn, printer_id: int, slot: int, tray: dict[str, Any]) -
         ),
     )
 
-    tag_uid = _norm(tray.get("tag_uid")) or None
-    tray_info_idx = _norm(tray.get("tray_info_idx")) or None
-
     mapping = conn.execute(
         "SELECT spool_id FROM ams_slot_mappings WHERE printer_id = ? AND slot = ?",
         (printer_id, slot),
     ).fetchone()
 
-    product = lookup_filament(conn, tag_uid=tag_uid, tray_info_idx=tray_info_idx)
-    if product:
-        spool_id = pick_active_spool(
-            conn,
-            product["brand"],
-            product["material"],
-            product["color_name"],
-        )
-        if spool_id:
-            conn.execute(
-                """
-                UPDATE ams_slot_mappings SET spool_id = ?, updated_at = datetime('now')
-                WHERE printer_id = ? AND slot = ?
-                """,
-                (spool_id, printer_id, slot),
-            )
-        return spool_id
-
-    if not tag_uid and not tray_info_idx:
-        return int(mapping["spool_id"]) if mapping and mapping["spool_id"] else None
-
     if mapping and mapping["spool_id"]:
-        teach_from_spool(conn, int(mapping["spool_id"]), tray)
         return int(mapping["spool_id"])
 
-    return None
+    tag_uid = _norm(tray.get("tag_uid")) or None
+    tray_info_idx = _norm(tray.get("tray_info_idx")) or None
+    product = lookup_filament(conn, tag_uid=tag_uid, tray_info_idx=tray_info_idx)
+    if not product:
+        return None
+
+    spool_id = pick_active_spool(
+        conn,
+        product["brand"],
+        product["material"],
+        product["color_name"],
+    )
+    if spool_id:
+        conn.execute(
+            """
+            UPDATE ams_slot_mappings SET spool_id = ?, updated_at = datetime('now')
+            WHERE printer_id = ? AND slot = ?
+            """,
+            (spool_id, printer_id, slot),
+        )
+    return spool_id
