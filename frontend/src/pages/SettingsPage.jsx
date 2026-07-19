@@ -170,6 +170,9 @@ export default function SettingsPage() {
             FTPS fallback: {settings.bambu_ftps_configured ? 'Yes' : 'No'}
           </div>
           <p className="muted">
+            “MQTT: Yes” only means env vars are set — not that AMS tray data is flowing. Check sync diagnostics below.
+          </p>
+          <p className="muted">
             After a SpoolStock CSV import, use this once: it removes Bambu history, adds back any
             filament those imports wrongly deducted, and permanently blocks those cloud tasks from
             reappearing when the container redeploys.
@@ -178,6 +181,47 @@ export default function SettingsPage() {
             Clear Bambu history and restore spool weights
           </button>
           <button onClick={saveSettings}>Save settings</button>
+        </div>
+
+        <div className="card form-grid">
+          <h2>Bambu sync diagnostics</h2>
+          <p className="muted">
+            Live timestamps from the background MQTT worker. If <code>mqtt_last_ams_at</code> is empty after redeploy,
+            AMS tray data is not reaching the app — use “Refresh from printer” on the AMS page.
+          </p>
+          {settings.bambu_diagnostics && (
+            <dl className="diag-list">
+              {Object.entries(settings.bambu_diagnostics).map(([key, value]) => (
+                <div key={key} className="diag-row">
+                  <dt>{key}</dt>
+                  <dd>{value || '—'}</dd>
+                </div>
+              ))}
+            </dl>
+          )}
+          {settings.sync_state?.length > 0 && (
+            <>
+              <h3>All sync_state keys</h3>
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Key</th>
+                    <th>Value</th>
+                    <th>Updated</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {settings.sync_state.map((row) => (
+                    <tr key={row.key}>
+                      <td><code>{row.key}</code></td>
+                      <td className="mono-cell">{row.value?.length > 120 ? `${row.value.slice(0, 120)}…` : (row.value || '—')}</td>
+                      <td>{row.updated_at || '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </>
+          )}
         </div>
 
         <div className="card form-grid">

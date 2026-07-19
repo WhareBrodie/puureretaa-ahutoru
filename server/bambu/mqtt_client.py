@@ -18,6 +18,46 @@ if TYPE_CHECKING:
 logger = logging.getLogger("bambu.mqtt")
 
 
+def parse_trays_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    print_data = payload.get("print") or {}
+    ams_data = payload.get("ams") or print_data.get("ams") or {}
+    trays: dict[str, Any] = {}
+    for unit in ams_data.get("ams") or []:
+        for index, tray in enumerate(unit.get("tray") or [], start=1):
+            slot = str(int(tray.get("id", index - 1)) + 1) if str(tray.get("id", "")).isdigit() else str(index)
+            tag_uid = tray.get("tag_uid")
+            if tag_uid and set(str(tag_uid).strip("0")) == set():
+                tag_uid = None
+            trays[slot] = {
+                "tray_type": tray.get("tray_type"),
+                "tray_color": tray.get("tray_color"),
+                "tray_info_idx": tray.get("tray_info_idx"),
+                "tag_uid": tag_uid,
+                "remain": tray.get("remain"),
+            }
+    return trays
+
+
+def record_mqtt_diagnostics(payload: dict[str, Any]) -> None:
+    from datetime import datetime, timezone
+
+    from db import connect, set_sync_state
+
+    print_data = payload.get("print") or {}
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    with connect() as conn:
+        set_sync_state(conn, "mqtt_last_message_at", now)
+        if print_data.get("msg") == 0:
+            set_sync_state(conn, "mqtt_last_pushall_at", now)
+            trays = parse_trays_from_payload(payload)
+            set_sync_state(conn, "mqtt_last_pushall_tray_count", str(len(trays)))
+            set_sync_state(
+                conn,
+                "mqtt_last_pushall_has_ams",
+                "yes" if print_data.get("ams") else "no",
+            )
+
+
 class BambuMqttClient:
     def __init__(
         self,
@@ -140,10 +180,14 @@ class BambuMqttClient:
         client.tls_set(cert_reqs=ssl.CERT_NONE)
         client.tls_insecure_set(True)
 
+        topic_request = f"device/{serial}/request"
+
         def on_connect(client, userdata, flags, reason_code, properties=None):
             if reason_code == 0 or str(reason_code) == "Success":
                 logger.info("Connected to Bambu cloud MQTT (%s)", broker)
                 client.subscribe(topic_report)
+                self._enable_ams_tray_reads(client, topic_request)
+                self._request_pushall(client, topic_request)
             else:
                 logger.error("Cloud MQTT connect failed: %s", reason_code)
 
@@ -153,6 +197,8 @@ class BambuMqttClient:
         client.connect(broker, 8883, keepalive=60)
         client.loop_start()
         while not self._stop.is_set():
+            if time.time() - self._last_pushall > 60:
+                self._request_pushall(client, topic_request)
             time.sleep(1)
         client.loop_stop()
         client.disconnect()
@@ -177,6 +223,7 @@ class BambuMqttClient:
             if reason_code == 0 or str(reason_code) == "Success":
                 logger.info("Connected to Bambu local MQTT (%s)", ip)
                 client.subscribe(topic_report)
+                self._enable_ams_tray_reads(client, topic_request)
                 self._request_pushall(client, topic_request)
             else:
                 logger.error("Local MQTT connect failed: %s", reason_code)
@@ -203,49 +250,40 @@ class BambuMqttClient:
 
         return on_message
 
+    def _enable_ams_tray_reads(self, client: mqtt.Client, topic_request: str) -> None:
+        payload = json.dumps(
+            {
+                "system": {
+                    "sequence_id": "0",
+                    "command": "ams_user_setting",
+                    "ams_id": 0,
+                    "tray_read_option": True,
+                }
+            }
+        )
+        client.publish(topic_request, payload)
+
     def _request_pushall(self, client: mqtt.Client, topic_request: str) -> None:
+        start_payload = json.dumps({"pushing": {"sequence_id": "0", "command": "start"}})
+        client.publish(topic_request, start_payload)
         payload = json.dumps({"pushing": {"sequence_id": "0", "command": "pushall"}})
         client.publish(topic_request, payload)
         self._last_pushall = time.time()
-        if self._mode == "local":
-            for slot_id in range(4):
-                rfid_payload = json.dumps(
-                    {
-                        "print": {
-                            "sequence_id": str(slot_id + 1),
-                            "command": "ams_get_rfid",
-                            "ams_id": 0,
-                            "slot_id": slot_id,
-                        }
+        for slot_id in range(4):
+            rfid_payload = json.dumps(
+                {
+                    "print": {
+                        "sequence_id": str(slot_id + 1),
+                        "command": "ams_get_rfid",
+                        "ams_id": 0,
+                        "slot_id": slot_id,
                     }
-                )
-                client.publish(topic_request, rfid_payload)
-
-    def _parse_trays(self, payload: dict[str, Any]) -> dict[str, Any]:
-        print_data = payload.get("print") or {}
-        # Newer firmware nests AMS under print.ams; older payloads used top-level ams.
-        ams_data = payload.get("ams") or print_data.get("ams") or {}
-        trays: dict[str, Any] = {}
-        ams_units = ams_data.get("ams") or []
-        if ams_units:
-            unit = ams_units[0]
-            for index, tray in enumerate(unit.get("tray") or [], start=1):
-                slot = str(int(tray.get("id", index - 1)) + 1) if str(tray.get("id", "")).isdigit() else str(index)
-                tag_uid = tray.get("tag_uid")
-                if tag_uid and set(str(tag_uid).strip("0")) == set():
-                    tag_uid = None
-                trays[slot] = {
-                    "tray_type": tray.get("tray_type"),
-                    "tray_color": tray.get("tray_color"),
-                    "tray_info_idx": tray.get("tray_info_idx"),
-                    "tag_uid": tag_uid,
-                    "remain": tray.get("remain"),
                 }
-        if trays:
-            logger.info("AMS MQTT trays parsed for slots: %s", ", ".join(sorted(trays.keys())))
-        return trays
+            )
+            client.publish(topic_request, rfid_payload)
 
     def _handle_message(self, payload: dict[str, Any]) -> None:
+        record_mqtt_diagnostics(payload)
         print_data = payload.get("print") or {}
         gcode_state = print_data.get("gcode_state", self._last_state)
 
@@ -260,7 +298,9 @@ class BambuMqttClient:
             "total_layer_num": print_data.get("total_layer_num"),
         }
 
-        trays = self._parse_trays(payload)
+        trays = parse_trays_from_payload(payload)
+        if trays:
+            logger.info("AMS MQTT trays parsed for slots: %s", ", ".join(sorted(trays.keys())))
 
         if self.on_state_update:
             self.on_state_update(printer_state, trays)

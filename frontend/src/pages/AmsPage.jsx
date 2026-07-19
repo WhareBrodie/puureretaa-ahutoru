@@ -12,6 +12,7 @@ export default function AmsPage() {
   const [spools, setSpools] = useState([]);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
+  const [refreshing, setRefreshing] = useState(false);
 
   const load = () => {
     Promise.all([api.ams.live(), api.spools.list()])
@@ -42,6 +43,24 @@ export default function AmsPage() {
     }
   };
 
+  const refreshFromPrinter = async () => {
+    setRefreshing(true);
+    setError('');
+    try {
+      const result = await api.ams.refresh();
+      setLive(result);
+      if (result.probe?.ok) {
+        setMessage(`AMS refreshed — trays: ${Object.keys(result.ams || {}).join(', ') || 'none'}`);
+      } else {
+        setError(result.probe?.error || 'Refresh did not return AMS tray data');
+      }
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
   const slots = live?.slots || [];
   const mqtt = live?.ams || {};
 
@@ -56,6 +75,9 @@ export default function AmsPage() {
             (partially used; if all are new, any match). Non-RFID filament still needs manual slot picks.
           </p>
         </div>
+        <button type="button" className="secondary" disabled={refreshing} onClick={refreshFromPrinter}>
+          {refreshing ? 'Refreshing…' : 'Refresh from printer'}
+        </button>
       </div>
 
       {error && <div className="card danger">{error}</div>}

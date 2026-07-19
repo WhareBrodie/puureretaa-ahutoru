@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from bambu.filament_rfid import sync_slot_for_tray, teach_from_spool
+from bambu.mqtt_probe import probe_printer_mqtt
 from db import connect, row_to_dict, rows_to_dicts
 
 
@@ -97,3 +98,9 @@ def get_live_printer_state() -> dict[str, Any]:
     state = json.loads(state_raw["value"]) if state_raw else {}
     ams = json.loads(ams_raw["value"]) if ams_raw else {}
     return {"printer": state, "ams": ams, "slots": list_ams_slots()}
+
+
+def refresh_from_printer() -> dict[str, Any]:
+    probe = probe_printer_mqtt()
+    live = get_live_printer_state()
+    return {"probe": probe, **live}

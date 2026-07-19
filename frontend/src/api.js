@@ -101,6 +101,7 @@ export const api = {
   ams: {
     slots: () => request('/ams/slots'),
     live: () => request('/ams/live'),
+    refresh: () => request('/ams/refresh', { method: 'POST' }),
     updateSlot: (slot, body) => request(`/ams/slots/${slot}`, { method: 'PUT', body: JSON.stringify(body) }),
   },
   exportCsv: () => request('/export/csv'),

@@ -15,7 +15,7 @@ from bambu.task_guard import (
     ignore_bambu_tasks,
     restore_auto_import_deductions,
 )
-from db import connect, get_setting, row_to_dict, rows_to_dicts, set_setting, set_sync_state
+from db import connect, get_setting, get_sync_state, row_to_dict, rows_to_dicts, set_setting, set_sync_state
 
 
 def _cloud_credentials_configured() -> bool:
@@ -88,6 +88,16 @@ def get_settings() -> dict[str, Any]:
             "SELECT key, value, updated_at FROM sync_state ORDER BY key"
         ).fetchall()
         settings["sync_state"] = rows_to_dicts(sync_rows)
+        settings["bambu_diagnostics"] = {
+            "mqtt_last_message_at": get_sync_state(conn, "mqtt_last_message_at"),
+            "mqtt_last_print_at": get_sync_state(conn, "mqtt_last_print_at"),
+            "mqtt_last_ams_at": get_sync_state(conn, "mqtt_last_ams_at"),
+            "mqtt_last_ams_slots": get_sync_state(conn, "mqtt_last_ams_slots"),
+            "mqtt_last_pushall_at": get_sync_state(conn, "mqtt_last_pushall_at"),
+            "mqtt_last_pushall_has_ams": get_sync_state(conn, "mqtt_last_pushall_has_ams"),
+            "mqtt_last_pushall_tray_count": get_sync_state(conn, "mqtt_last_pushall_tray_count"),
+            "live_ams_state": get_sync_state(conn, "live_ams_state"),
+        }
         return settings
 
 
