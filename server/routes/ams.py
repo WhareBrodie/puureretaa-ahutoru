@@ -4,8 +4,102 @@ from __future__ import annotations
 
 from typing import Any
 
-from bambu.filament_rfid import sync_slot_for_tray, teach_from_spool
+from bambu.filament_rfid import lookup_filament, sync_slot_for_tray, teach_from_spool
 from db import connect, row_to_dict, rows_to_dicts
+
+
+def _normalize_tray_color(value: str | None) -> str | None:
+    if not value:
+        return None
+    raw = str(value).strip().lstrip("#")[:6]
+    if len(raw) != 6:
+        return None
+    try:
+        int(raw, 16)
+    except ValueError:
+        return None
+    return raw.upper()
+
+
+def _color_distance(hex_a: str | None, hex_b: str | None) -> int:
+    if not hex_a or not hex_b:
+        return 999
+    try:
+        ar, ag, ab = int(hex_a[0:2], 16), int(hex_a[2:4], 16), int(hex_a[4:6], 16)
+        br, bg, bb = int(hex_b[0:2], 16), int(hex_b[2:4], 16), int(hex_b[4:6], 16)
+        return abs(ar - br) + abs(ag - bg) + abs(ab - bb)
+    except ValueError:
+        return 999
+
+
+def resolve_mapping_status(
+    slot: dict[str, Any],
+    live_tray: dict[str, Any] | None,
+    conn=None,
+) -> dict[str, str | None]:
+    spool_id = slot.get("spool_id") or slot.get("mapped_spool_id")
+    tray = live_tray or {}
+    tray_type = (tray.get("tray_type") or slot.get("mqtt_tray_type") or "").strip().upper()
+    tray_color = _normalize_tray_color(tray.get("tray_color") or slot.get("mqtt_tray_color"))
+    mapped_material = (slot.get("material") or "").strip().upper()
+    mapped_color = _normalize_tray_color(slot.get("color_hex"))
+
+    if not spool_id:
+        return {
+            "mapping_status": "unmapped",
+            "mapping_message": "Unmapped spool — pick from the dropdown",
+        }
+
+    has_tray_signal = bool(
+        tray_type
+        or tray_color
+        or tray.get("tray_info_idx")
+        or slot.get("mqtt_tray_info_idx")
+        or tray.get("tag_uid")
+        or slot.get("mqtt_tag_uid")
+    )
+    if not has_tray_signal:
+        return {"mapping_status": "mapped", "mapping_message": None}
+
+    tray_info_idx = (tray.get("tray_info_idx") or slot.get("mqtt_tray_info_idx") or "").strip()
+    if tray_info_idx and conn and slot.get("brand"):
+        product = lookup_filament(conn, tray_info_idx=tray_info_idx)
+        if product:
+            if (
+                product["brand"] != slot.get("brand")
+                or product["material"].upper() != mapped_material
+                or (product.get("color_name") or "") != (slot.get("color_name") or "")
+            ):
+                return {
+                    "mapping_status": "mismatch",
+                    "mapping_message": "Filament in slot changed — remap spool",
+                }
+
+    if tray_type and mapped_material and tray_type not in {mapped_material, "UNKNOWN"}:
+        return {
+            "mapping_status": "mismatch",
+            "mapping_message": "Filament in slot changed — remap spool",
+        }
+
+    if tray_color and mapped_color and _color_distance(tray_color, mapped_color) > 120:
+        return {
+            "mapping_status": "mismatch",
+            "mapping_message": "Filament in slot changed — remap spool",
+        }
+
+    return {"mapping_status": "mapped", "mapping_message": None}
+
+
+def enrich_slots_with_mapping_status(
+    slots: list[dict[str, Any]],
+    ams_live: dict[str, Any],
+) -> list[dict[str, Any]]:
+    enriched: list[dict[str, Any]] = []
+    with connect() as conn:
+        for slot in slots:
+            tray = ams_live.get(str(slot["slot"])) or ams_live.get(slot["slot"]) or {}
+            enriched.append({**slot, **resolve_mapping_status(slot, tray, conn)})
+    return enriched
 
 
 def get_default_printer() -> dict[str, Any]:
@@ -103,7 +197,8 @@ def get_live_printer_state() -> dict[str, Any]:
 
     state = json.loads(state_raw["value"]) if state_raw else {}
     ams = json.loads(ams_raw["value"]) if ams_raw else {}
-    return {"printer": state, "ams": ams, "slots": list_ams_slots()}
+    slots = enrich_slots_with_mapping_status(list_ams_slots(), ams)
+    return {"printer": state, "ams": ams, "slots": slots}
 
 
 def refresh_from_printer() -> dict[str, Any]:

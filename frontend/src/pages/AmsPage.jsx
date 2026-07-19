@@ -90,8 +90,8 @@ export default function AmsPage() {
         <div>
           <h1>AMS setup</h1>
           <p>
-            Pick the correct spool per slot once — your choice is kept; MQTT will not change it.
-            RFID is learned only when you use the dropdown (one product per tray colour).
+            Pick the correct spool per slot — slots warn when unmapped or when the live tray no longer matches your mapping.
+            RFID is learned when you use the dropdown.
           </p>
         </div>
         <div className="toolbar">
@@ -111,11 +111,29 @@ export default function AmsPage() {
         {slots.map((slot) => {
           const tray = mqtt[String(slot.slot)] || {};
           const trayColor = mqttColor(tray.tray_color) || slot.color_hex;
+          const status = slot.mapping_status || (slot.spool_id || slot.mapped_spool_id ? 'mapped' : 'unmapped');
+          const statusMessage = slot.mapping_message
+            || (status === 'unmapped' ? 'Unmapped spool — pick from the dropdown' : null);
+          const cardClass = [
+            'card',
+            'ams-slot',
+            status === 'unmapped' ? 'ams-slot--unmapped' : '',
+            status === 'mismatch' ? 'ams-slot--mismatch' : '',
+          ].filter(Boolean).join(' ');
           return (
-            <div key={slot.slot} className="card ams-slot">
+            <div key={slot.slot} className={cardClass}>
               <div className="ams-slot-header">
                 <strong>Slot {slot.slot}</strong>
                 {trayColor && <span className="color-dot" style={colorStyle(trayColor)} />}
+              </div>
+              <div className="ams-slot-status">
+                {status === 'mapped' ? (
+                  <span className="badge">Mapped</span>
+                ) : (
+                  <span className={`badge ${status === 'mismatch' ? 'danger' : 'warning'}`}>
+                    {statusMessage}
+                  </span>
+                )}
               </div>
               <div className="muted">
                 MQTT: {tray.tray_type || '—'} {tray.tray_color ? `#${String(tray.tray_color).slice(0, 6)}` : ''}
@@ -139,7 +157,19 @@ export default function AmsPage() {
                   ))}
                 </select>
               </label>
-              {slot.brand && (
+              {status === 'unmapped' && (
+                <div className="ams-slot-empty">No spool mapped to this slot yet.</div>
+              )}
+              {status === 'mismatch' && slot.brand && (
+                <div className="ams-slot-stale">
+                  <strong>Still mapped to</strong>
+                  <div>{slot.color_name || slot.material}</div>
+                  <div className="muted">
+                    {slot.brand} · {Math.round(slot.remaining_g || 0)}g
+                  </div>
+                </div>
+              )}
+              {status === 'mapped' && slot.brand && (
                 <div>
                   <strong>{slot.color_name || slot.material}</strong>
                   <div className="muted">
