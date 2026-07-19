@@ -66,17 +66,18 @@ def lookup_filament(
 ) -> dict[str, Any] | None:
     tag_uid = _norm(tag_uid) or None
     tray_info_idx = _norm(tray_info_idx) or None
-    if tag_uid:
-        row = conn.execute(
-            "SELECT * FROM bambu_filament_rfid WHERE tag_uid = ?",
-            (tag_uid,),
-        ).fetchone()
-        if row:
-            return dict(row)
+    # tray_info_idx is colour/SKU-specific; tag_uid is often shared across many Bambu PLA variants.
     if tray_info_idx:
         row = conn.execute(
             "SELECT * FROM bambu_filament_rfid WHERE tray_info_idx = ?",
             (tray_info_idx,),
+        ).fetchone()
+        if row:
+            return dict(row)
+    if tag_uid:
+        row = conn.execute(
+            "SELECT * FROM bambu_filament_rfid WHERE tag_uid = ?",
+            (tag_uid,),
         ).fetchone()
         if row:
             return dict(row)

@@ -105,7 +105,7 @@ Copy the printed token into Portainer as `BAMBU_CLOUD_ACCESS_TOKEN`.
 
 Developer Mode on the printer is **not** required for cloud sync.
 
-Bambu RFID identifies **filament product** (all PLA Basic Black spools share one tag), not individual spools. Teach once by mapping an AMS slot while RFID is visible (`bambu_filament_rfid` table). Future loads auto-map using the active spool heuristic (partially-used spool; if all full, any match).
+Bambu RFID identifies **filament product** (all PLA Basic Black spools share one tag), not individual spools. The app keys learned products primarily on `tray_info_idx` (colour/SKU); `tag_uid` alone is not unique across colours. Teach once by mapping an AMS slot while RFID is visible (`bambu_filament_rfid` table). Future loads auto-map using the active spool heuristic (partially-used spool; if all full, any match).
 
 **AMS live state troubleshooting:** Settings → **Bambu sync diagnostics** shows `mqtt_last_ams_at`, `mqtt_last_pushall_has_ams`, etc. AMS tray arrays only arrive in full `pushall` snapshots (not print deltas). Use **AMS setup → Refresh from printer** (`POST /api/ams/refresh`) for a one-shot MQTT probe (tries local, then cloud). If refresh times out on the printer IP, the deploy host cannot reach local MQTT — use cloud mode or fix network routing. Manual slot dropdown mappings still work for print deduction even when MQTT tray fields are empty.
 
