@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import Any
 
 from bambu.filament_rfid import sync_slot_for_tray, teach_from_spool
-from bambu.mqtt_probe import probe_printer_mqtt
 from db import connect, row_to_dict, rows_to_dicts
 
 
@@ -101,6 +100,8 @@ def get_live_printer_state() -> dict[str, Any]:
 
 
 def refresh_from_printer() -> dict[str, Any]:
+    from bambu.mqtt_probe import probe_printer_mqtt
+
     probe = probe_printer_mqtt()
     live = get_live_printer_state()
     return {"probe": probe, **live}

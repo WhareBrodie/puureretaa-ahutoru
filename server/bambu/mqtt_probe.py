@@ -12,7 +12,6 @@ from typing import Any
 import paho.mqtt.client as mqtt
 
 from bambu.mqtt_client import BambuMqttClient, parse_trays_from_payload, record_mqtt_diagnostics
-from bambu.print_processor import store_live_state
 
 logger = logging.getLogger("bambu.mqtt_probe")
 
@@ -84,6 +83,8 @@ def probe_printer_mqtt(timeout: float = 15.0) -> dict[str, Any]:
         if trays:
             result["trays"] = trays
             result["events"].append(f"trays_parsed={','.join(sorted(trays.keys()))}")
+            from bambu.print_processor import store_live_state
+
             store_live_state(result["printer"], trays)
             trays_event.set()
 
