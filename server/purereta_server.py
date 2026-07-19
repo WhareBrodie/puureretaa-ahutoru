@@ -66,6 +66,13 @@ class PureretaHandler(SimpleHTTPRequestHandler):
         parts = [part for part in parsed.path.split("/") if part]
         return parts, parse_qs(parsed.query)
 
+    def serve_spa_or_static(self) -> None:
+        path = urlparse(self.path).path
+        if STATIC.is_dir() and not path.startswith("/api/"):
+            if path != "/" and not (STATIC / path.lstrip("/")).is_file():
+                self.path = "/index.html"
+        super().do_GET()
+
     def do_GET(self) -> None:
         parts, query = self.parse_path()
         try:
@@ -160,7 +167,7 @@ class PureretaHandler(SimpleHTTPRequestHandler):
                     self.wfile.write(data)
                     return
 
-            if parts[0] == "api":
+            if parts and parts[0] == "api":
                 self.send_error(404)
                 return
         except KeyError as exc:
@@ -170,7 +177,7 @@ class PureretaHandler(SimpleHTTPRequestHandler):
             self.end_json(400, {"error": str(exc)})
             return
 
-        super().do_GET()
+        self.serve_spa_or_static()
 
     def do_POST(self) -> None:
         parts, _ = self.parse_path()
@@ -221,7 +228,7 @@ class PureretaHandler(SimpleHTTPRequestHandler):
                 self.end_json(200, result)
                 return
 
-            if parts[0] == "api":
+            if parts and parts[0] == "api":
                 self.send_error(404)
                 return
         except KeyError as exc:
@@ -247,7 +254,7 @@ class PureretaHandler(SimpleHTTPRequestHandler):
             if parts == ["api", "settings"]:
                 self.end_json(200, settings.update_settings(self.read_json_body()))
                 return
-            if parts[0] == "api":
+            if parts and parts[0] == "api":
                 self.send_error(404)
                 return
         except KeyError as exc:
@@ -269,7 +276,7 @@ class PureretaHandler(SimpleHTTPRequestHandler):
                 spools.delete_spool(int(parts[2]))
                 self.end_json(200, {"ok": True})
                 return
-            if parts[0] == "api":
+            if parts and parts[0] == "api":
                 self.send_error(404)
                 return
         except Exception as exc:  # noqa: BLE001
