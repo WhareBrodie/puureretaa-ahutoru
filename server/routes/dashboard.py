@@ -12,6 +12,36 @@ from routes.prints import list_prints
 from routes.spools import list_spools
 
 
+def _filament_stock_groups() -> list[dict[str, Any]]:
+    """Group non-depleted spools by brand+material+color and sum remaining weight."""
+    spools = list_spools()
+    with connect() as conn:
+        default_threshold = float(get_setting(conn, "default_low_stock_threshold_g", "100") or 100)
+
+    groups: dict[str, dict[str, Any]] = {}
+    for spool in spools:
+        if (spool.get("remaining_g") or 0) <= 0:
+            continue
+        key = f"{spool['brand']}|{spool['material']}|{spool.get('color_name') or ''}"
+        if key not in groups:
+            groups[key] = {
+                "brand": spool["brand"],
+                "material": spool["material"],
+                "color_name": spool.get("color_name"),
+                "color_hex": spool.get("color_hex"),
+                "total_remaining_g": 0.0,
+                "spool_count": 0,
+                "threshold_g": spool.get("low_stock_threshold_g") or default_threshold,
+            }
+        group = groups[key]
+        group["total_remaining_g"] += spool.get("remaining_g") or 0
+        group["spool_count"] += 1
+        if spool.get("color_hex") and not group.get("color_hex"):
+            group["color_hex"] = spool["color_hex"]
+
+    return list(groups.values())
+
+
 def _days_since(iso_ts: str | None) -> int | None:
     if not iso_ts:
         return None
@@ -23,20 +53,21 @@ def _days_since(iso_ts: str | None) -> int | None:
 
 
 def get_low_stock_alerts() -> list[dict[str, Any]]:
-    spools = list_spools(low_stock_only=True)
     alerts = []
-    for spool in spools:
-        alerts.append(
-            {
-                "type": "spool_low",
-                "spool_id": spool["id"],
-                "brand": spool["brand"],
-                "material": spool["material"],
-                "color_name": spool["color_name"],
-                "remaining_g": spool["remaining_g"],
-                "threshold_g": spool["low_stock_threshold_g"],
-            }
-        )
+    for group in _filament_stock_groups():
+        if group["total_remaining_g"] <= group["threshold_g"]:
+            alerts.append(
+                {
+                    "type": "filament_low",
+                    "brand": group["brand"],
+                    "material": group["material"],
+                    "color_name": group["color_name"],
+                    "color_hex": group.get("color_hex"),
+                    "total_remaining_g": group["total_remaining_g"],
+                    "threshold_g": group["threshold_g"],
+                    "spool_count": group["spool_count"],
+                }
+            )
     with connect() as conn:
         material_thresholds = json.loads(get_setting(conn, "material_low_stock_thresholds", "{}") or "{}")
         totals = conn.execute(
@@ -145,22 +176,27 @@ def get_stats() -> dict[str, Any]:
 
 
 def get_reorder_suggestions() -> list[dict[str, Any]]:
-    """Low-stock spools worth reordering (deduped by brand/material/color)."""
-    seen: set[str] = set()
+    """Low-stock filaments worth reordering (deduped by brand/material/color)."""
     suggestions = []
-    for spool in list_spools(low_stock_only=True):
-        key = f"{spool.get('brand')}|{spool.get('material')}|{spool.get('color_name') or ''}"
-        if key in seen:
-            continue
-        seen.add(key)
-        suggestions.append(
-            {
-                "spool_id": spool["id"],
-                "brand": spool["brand"],
-                "material": spool["material"],
-                "color_name": spool["color_name"],
-                "color_hex": spool["color_hex"],
-                "remaining_g": spool["remaining_g"],
-            }
-        )
-    return suggestions
+    for group in _filament_stock_groups():
+        if group["total_remaining_g"] <= group["threshold_g"]:
+            suggestions.append(
+                {
+                    "brand": group["brand"],
+                    "material": group["material"],
+                    "color_name": group["color_name"],
+                    "color_hex": group.get("color_hex"),
+                    "total_remaining_g": group["total_remaining_g"],
+                    "threshold_g": group["threshold_g"],
+                    "spool_count": group["spool_count"],
+                }
+            )
+    return sorted(
+        suggestions,
+        key=lambda item: (
+            item["total_remaining_g"],
+            item["brand"],
+            item["material"],
+            item.get("color_name") or "",
+        ),
+    )

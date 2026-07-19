@@ -69,13 +69,13 @@ export default function StatsPage() {
           {alerts?.reorder?.length ? (
             <ul>
               {alerts.reorder.map((item) => (
-                <li key={item.spool_id}>
-                  {item.brand} {item.material} {item.color_name} — {Math.round(item.remaining_g || 0)}g left
+                <li key={`${item.brand}-${item.material}-${item.color_name || ''}`}>
+                  {item.brand} {item.material} {item.color_name} — {Math.round(item.total_remaining_g || 0)}g total
                 </li>
               ))}
             </ul>
           ) : (
-            <p className="muted">No spools are low yet.</p>
+            <p className="muted">No filaments are low yet.</p>
           )}
         </div>
       </div>

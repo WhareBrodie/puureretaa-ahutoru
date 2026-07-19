@@ -56,15 +56,15 @@ export default function DashboardPage() {
           {data.low_stock_alerts?.length ? (
             <ul>
               {data.low_stock_alerts.map((alert) => (
-                <li key={`${alert.type}-${alert.spool_id || alert.material}`}>
+                <li key={`${alert.type}-${alert.brand}-${alert.material}-${alert.color_name || ''}-${alert.material || ''}`}>
                   {alert.type === 'material_low'
                     ? `${alert.material}: ${Math.round(alert.total_g)}g left`
-                    : `${alert.brand} ${alert.material} ${alert.color_name || ''} — ${Math.round(alert.remaining_g || 0)}g`}
+                    : `${alert.brand} ${alert.material} ${alert.color_name || ''} — ${Math.round(alert.total_remaining_g || 0)}g total`}
                 </li>
               ))}
             </ul>
           ) : (
-            <p className="muted">All spools above thresholds.</p>
+            <p className="muted">All filaments above thresholds.</p>
           )}
         </div>
         <div className="card">
