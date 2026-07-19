@@ -111,6 +111,11 @@ def _is_truthy(value: str | None) -> bool:
     return str(value or "").strip().lower() in {"1", "true", "yes"}
 
 
+def _payload_for_update(payload: dict[str, Any]) -> dict[str, Any]:
+    """Omit None values so CSV re-import does not wipe fields absent from the file."""
+    return {k: v for k, v in payload.items() if v is not None}
+
+
 def spoolstock_row_to_payload(row: dict[str, str]) -> dict[str, Any]:
     brand = (row.get("filament.brand.name") or "").strip()
     material = (row.get("filament.material.name") or "").strip()
@@ -130,21 +135,17 @@ def spoolstock_row_to_payload(row: dict[str, str]) -> dict[str, Any]:
         "purchase_price": _parse_optional_float(row.get("price")),
         "purchase_date": _parse_date(row.get("purchased_on")),
         "supplier": (row.get("purchase_source") or "").strip() or None,
-        "batch_number": None,
         "rating": _parse_optional_int(row.get("filament.rating")),
         "remaining_g": remaining,
         "initial_weight_g": initial_weight,
         "empty_spool_weight_g": _parse_optional_float(row.get("empty_spool.weight")),
-        "location_id": None,
         "notes": _combine_notes(row.get("notes"), row.get("filament.notes"), row.get("empty_spool.notes")),
-        "low_stock_threshold_g": 100,
-        "bambu_tag_uid": None,
         "qr_code_id": (row.get("short_id") or "").strip() or None,
     }
 
 
 def native_row_to_payload(row: dict[str, str]) -> dict[str, Any]:
-    return {
+    payload: dict[str, Any] = {
         "brand": row.get("brand", "").strip(),
         "material": row.get("material", "").strip(),
         "color_name": row.get("color_name") or None,
@@ -157,12 +158,14 @@ def native_row_to_payload(row: dict[str, str]) -> dict[str, Any]:
         "remaining_g": _parse_optional_float(row.get("remaining_g")),
         "initial_weight_g": _parse_optional_float(row.get("initial_weight_g")),
         "empty_spool_weight_g": _parse_optional_float(row.get("empty_spool_weight_g")),
-        "location_id": int(row["location_id"]) if row.get("location_id") else None,
         "notes": row.get("notes") or None,
         "low_stock_threshold_g": _parse_optional_float(row.get("low_stock_threshold_g")),
         "bambu_tag_uid": row.get("bambu_tag_uid") or None,
         "qr_code_id": row.get("qr_code_id") or None,
     }
+    if row.get("location_id"):
+        payload["location_id"] = int(row["location_id"])
+    return payload
 
 
 def import_spools_csv(
@@ -200,13 +203,13 @@ def import_spools_csv(
             if csv_format == "spoolstock" and qr_code_id:
                 existing_id = get_spool_id_by_qr_code(qr_code_id)
                 if existing_id:
-                    update_spool(existing_id, payload)
+                    update_spool(existing_id, _payload_for_update(payload))
                     updated += 1
                     continue
 
             spool_id = row.get("id")
             if update_existing and spool_id:
-                update_spool(int(spool_id), payload)
+                update_spool(int(spool_id), _payload_for_update(payload))
                 updated += 1
             else:
                 create_spool(payload)

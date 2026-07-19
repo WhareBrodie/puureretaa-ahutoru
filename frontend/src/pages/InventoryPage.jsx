@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, photoUrl } from '../api';
+import MoveSpoolModal from '../components/MoveSpoolModal';
 import SpoolRing from '../components/SpoolRing';
 import { formatWeight, groupSpoolsByLocation, isDepleted } from '../utils/filaments';
 
@@ -8,10 +9,11 @@ export default function InventoryPage() {
   const [spools, setSpools] = useState([]);
   const [locations, setLocations] = useState([]);
   const [showDepleted, setShowDepleted] = useState(false);
+  const [moveSpool, setMoveSpool] = useState(null);
   const [error, setError] = useState('');
   const sectionRefs = useRef({});
 
-  useEffect(() => {
+  const load = useCallback(() => {
     Promise.all([api.spools.list(), api.locations.list()])
       .then(([spoolData, locationData]) => {
         setSpools(spoolData.spools || []);
@@ -19,6 +21,8 @@ export default function InventoryPage() {
       })
       .catch((err) => setError(err.message));
   }, []);
+
+  useEffect(load, [load]);
 
   const locationGroups = useMemo(() => {
     const filtered = showDepleted ? spools : spools.filter((s) => !isDepleted(s));
@@ -63,25 +67,34 @@ export default function InventoryPage() {
                 {locSpools.map((spool) => {
                   const photo = photoUrl(spool);
                   return (
-                    <Link key={spool.id} to={`/spools/${spool.id}`} className="inventory-spool-card">
-                      {photo ? (
-                        <div className="inventory-spool-photo" style={{ backgroundImage: `url(${photo})` }} />
-                      ) : (
-                        <SpoolRing
-                          remaining={spool.remaining_g || 0}
-                          capacity={spool.initial_weight_g || 1000}
-                          colorHex={spool.color_hex}
-                          size={56}
-                        />
-                      )}
-                      <div className="inventory-spool-brand">{spool.brand}</div>
-                      <div className="inventory-spool-name">{spool.color_name || spool.material}</div>
-                      <div className="inventory-spool-material">{spool.material}</div>
-                      <div className="inventory-spool-weight muted">{formatWeight(spool.remaining_g)}</div>
-                      {spool.qr_code_id && (
-                        <div className="inventory-spool-id">{spool.qr_code_id.slice(0, 8)}</div>
-                      )}
-                    </Link>
+                    <div key={spool.id} className="inventory-spool-card">
+                      <Link to={`/spools/${spool.id}`} className="inventory-spool-link">
+                        {photo ? (
+                          <div className="inventory-spool-photo" style={{ backgroundImage: `url(${photo})` }} />
+                        ) : (
+                          <SpoolRing
+                            remaining={spool.remaining_g || 0}
+                            capacity={spool.initial_weight_g || 1000}
+                            colorHex={spool.color_hex}
+                            size={56}
+                          />
+                        )}
+                        <div className="inventory-spool-brand">{spool.brand}</div>
+                        <div className="inventory-spool-name">{spool.color_name || spool.material}</div>
+                        <div className="inventory-spool-material">{spool.material}</div>
+                        <div className="inventory-spool-weight muted">{formatWeight(spool.remaining_g)}</div>
+                        {spool.qr_code_id && (
+                          <div className="inventory-spool-id">{spool.qr_code_id.slice(0, 8)}</div>
+                        )}
+                      </Link>
+                      <button
+                        type="button"
+                        className="secondary inventory-move-btn"
+                        onClick={() => setMoveSpool(spool)}
+                      >
+                        Move
+                      </button>
+                    </div>
                   );
                 })}
               </div>
@@ -108,6 +121,18 @@ export default function InventoryPage() {
           </button>
         ))}
       </aside>
+
+      {moveSpool && (
+        <MoveSpoolModal
+          spool={moveSpool}
+          locations={locations}
+          onClose={() => setMoveSpool(null)}
+          onSaved={() => {
+            setMoveSpool(null);
+            load();
+          }}
+        />
+      )}
     </div>
   );
 }
