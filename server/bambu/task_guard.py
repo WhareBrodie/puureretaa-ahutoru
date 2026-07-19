@@ -9,18 +9,23 @@ from typing import Any
 from db import connect, get_sync_state, scaled_deduction_g, set_sync_state
 
 AUTO_IMPORT_SOURCES = ("cloud", "mqtt", "ftps")
+SYNC_BASELINE_KEY = "cloud_sync_baseline"
 
 
 def cloud_sync_baseline(conn) -> str | None:
-    return get_sync_state(conn, "cloud_tasks_after")
+    return get_sync_state(conn, SYNC_BASELINE_KEY)
 
 
 def ensure_cloud_sync_baseline(conn) -> str:
     baseline = cloud_sync_baseline(conn)
     if baseline:
         return baseline
-    baseline = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    set_sync_state(conn, "cloud_tasks_after", baseline)
+    legacy = get_sync_state(conn, "cloud_tasks_after")
+    if legacy and "T" in legacy:
+        baseline = legacy
+    else:
+        baseline = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    set_sync_state(conn, SYNC_BASELINE_KEY, baseline)
     return baseline
 
 

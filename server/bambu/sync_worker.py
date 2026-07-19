@@ -123,12 +123,13 @@ class SyncWorker:
         if not self.cloud.is_configured():
             return
         with connect() as conn:
-            after = ensure_cloud_sync_baseline(conn)
-        tasks = self.cloud.fetch_tasks(after=after, limit=20)
+            ensure_cloud_sync_baseline(conn)
+        # Fetch recent tasks without the `after` cursor — Bambu expects a task id there,
+        # and we previously stored ISO timestamps which skipped finished jobs.
+        tasks = self.cloud.fetch_tasks(limit=50)
         if not tasks:
             return
 
-        cursor: str | None = None
         for task in reversed(tasks):
             task_id = str(task.get("id") or task.get("taskId") or "")
             if not task_id:
@@ -173,16 +174,11 @@ class SyncWorker:
             if result.get("ignored"):
                 logger.info("Skipped cloud task %s (ignored or before baseline)", task_id)
 
-        for task in tasks:
-            detail = self.cloud.fetch_task_detail(str(task.get("id") or task.get("taskId") or "")) or task
-            if not task_is_importable(detail):
-                continue
-            cursor = task_timestamp(detail) or task_timestamp(task)
-            if cursor:
-                break
-        if cursor:
+        newest = tasks[0]
+        task_id = str(newest.get("id") or newest.get("taskId") or "")
+        if task_id:
             with connect() as conn:
-                set_sync_state(conn, "cloud_tasks_after", cursor)
+                set_sync_state(conn, "cloud_tasks_after", task_id)
 
     def run(self) -> None:
         init_db()

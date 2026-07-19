@@ -18,6 +18,8 @@ TASK_STATUS_PRINT_SUCCESS = 6
 TASK_STATUS_PRINT_FAILED = 7
 TASK_STATUS_SEND_CANCELED = 3
 TASK_STATUS_SEND_FAILED = 4
+TASK_STATUS_SEND_COMPLETED = 2
+TASK_STATUS_PRINTING = 5
 
 
 def _parse_iso8601(value: str | None) -> datetime | None:
@@ -44,20 +46,28 @@ def normalize_cloud_task_status(task: dict[str, Any]) -> str | None:
     if raw is None:
         return None
     if isinstance(raw, int):
+        if raw in (TASK_STATUS_PRINTING,):
+            return None
         if raw == TASK_STATUS_PRINT_SUCCESS:
             return "completed"
         if raw == TASK_STATUS_PRINT_FAILED:
             return "failed"
         if raw in (TASK_STATUS_SEND_CANCELED, TASK_STATUS_SEND_FAILED):
             return "cancelled"
+        if raw == TASK_STATUS_SEND_COMPLETED:
+            return None if task_is_still_printing(task) else "completed"
         return None
     token = str(raw).strip().lower()
+    if token in {"5", "printing"}:
+        return None
     if token in {"6", "completed", "success", "print_success"}:
         return "completed"
     if token in {"7", "failed", "print_failed"}:
         return "failed"
     if token in {"3", "4", "cancelled", "canceled", "send_canceled", "send_failed"}:
         return "cancelled"
+    if token in {"2", "send_completed"}:
+        return None if task_is_still_printing(task) else "completed"
     return None
 
 

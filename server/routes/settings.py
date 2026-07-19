@@ -10,6 +10,7 @@ from typing import Any
 from bambu.cloud_sync import BambuCloudClient
 from bambu.mqtt_client import BambuMqttClient
 from bambu.task_guard import (
+    SYNC_BASELINE_KEY,
     collect_auto_import_task_ids,
     ensure_cloud_sync_baseline,
     ignore_bambu_tasks,
@@ -142,7 +143,7 @@ def skip_cloud_history(delete_imported: bool = False) -> dict[str, Any]:
     ignored_tasks = 0
     with connect() as conn:
         ensure_cloud_sync_baseline(conn)
-        set_sync_state(conn, "cloud_tasks_after", now)
+        set_sync_state(conn, SYNC_BASELINE_KEY, now)
 
         if delete_imported:
             task_ids = collect_auto_import_task_ids(conn)
