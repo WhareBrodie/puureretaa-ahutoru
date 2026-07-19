@@ -9,7 +9,7 @@ import re
 from typing import Any
 
 from db import connect, rows_to_dicts
-from routes.spools import create_spool, update_spool
+from routes.spools import create_spool, get_spool_id_by_qr_code, update_spool
 
 EXPORT_FIELDS = [
     "id",
@@ -195,6 +195,14 @@ def import_spools_csv(
             )
             if not payload["brand"] or not payload["material"]:
                 raise ValueError("brand and material are required")
+
+            qr_code_id = payload.get("qr_code_id")
+            if csv_format == "spoolstock" and qr_code_id:
+                existing_id = get_spool_id_by_qr_code(qr_code_id)
+                if existing_id:
+                    update_spool(existing_id, payload)
+                    updated += 1
+                    continue
 
             spool_id = row.get("id")
             if update_existing and spool_id:

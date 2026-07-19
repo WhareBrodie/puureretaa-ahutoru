@@ -84,7 +84,7 @@ def create_spool(data: dict[str, Any]) -> dict[str, Any]:
     if not brand or not material:
         raise ValueError("brand and material are required")
 
-    qr_code_id = data.get("qr_code_id") or str(uuid.uuid4())[:8].upper()
+    qr_code_id = data.get("qr_code_id") or str(uuid.uuid4()).hex[:12].upper()
     remaining = data.get("remaining_g")
     initial = data.get("initial_weight_g") or 1000
     if remaining is None:
@@ -266,6 +266,12 @@ def find_spool_by_bambu_tag(tag_uid: str) -> dict[str, Any] | None:
             (tag_uid,),
         ).fetchone()
         return row_to_dict(row) if row else None
+
+
+def get_spool_id_by_qr_code(qr_code_id: str) -> int | None:
+    with connect() as conn:
+        row = conn.execute("SELECT id FROM spools WHERE qr_code_id = ?", (qr_code_id,)).fetchone()
+        return row["id"] if row else None
 
 
 def link_bambu_tag(spool_id: int, tag_uid: str, tray_info_idx: str | None = None) -> dict[str, Any]:
