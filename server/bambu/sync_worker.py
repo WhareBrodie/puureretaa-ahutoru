@@ -17,6 +17,7 @@ from bambu.cloud_sync import BambuCloudClient
 from bambu.ftps_gcode import BambuFtpsClient, parse_filament_usage
 from bambu.mqtt_client import BambuMqttClient
 from bambu.print_processor import process_print_job, store_live_state
+from bambu.task_guard import ensure_cloud_sync_baseline, is_before_baseline, is_bambu_task_ignored, task_timestamp
 from db import connect, get_sync_state, init_db, set_sync_state
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
@@ -65,13 +66,15 @@ class SyncWorker:
 
         if bambu_task_id:
             with connect() as conn:
+                if is_bambu_task_ignored(conn, bambu_task_id):
+                    return
                 existing = conn.execute(
                     "SELECT id FROM print_jobs WHERE bambu_task_id = ?", (bambu_task_id,)
                 ).fetchone()
             if existing:
                 return
 
-        process_print_job(
+        result = process_print_job(
             title=event.get("subtask_name") or event.get("gcode_file"),
             started_at=None,
             ended_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -83,6 +86,8 @@ class SyncWorker:
             completion_percent=float(event.get("completion_percent") or 100),
             usages=usages,
         )
+        if result.get("ignored"):
+            logger.info("Skipped MQTT print import for task %s", bambu_task_id or event.get("gcode_file"))
 
     def _find_matching_cloud_task(self, event: dict) -> dict | None:
         tasks = self.cloud.fetch_tasks(limit=5)
@@ -99,7 +104,7 @@ class SyncWorker:
         if not self.cloud.is_configured():
             return
         with connect() as conn:
-            after = get_sync_state(conn, "cloud_tasks_after")
+            after = ensure_cloud_sync_baseline(conn)
         tasks = self.cloud.fetch_tasks(after=after, limit=20)
         if not tasks:
             return
@@ -109,16 +114,22 @@ class SyncWorker:
             if not task_id:
                 continue
             with connect() as conn:
+                if is_bambu_task_ignored(conn, task_id):
+                    continue
                 existing = conn.execute(
                     "SELECT id FROM print_jobs WHERE bambu_task_id = ?", (task_id,)
                 ).fetchone()
             if existing:
                 continue
             detail = self.cloud.fetch_task_detail(task_id) or task
+            ended_at = task_timestamp(detail) or task_timestamp(task)
+            with connect() as conn:
+                if is_before_baseline(conn, ended_at):
+                    continue
             usages = self.cloud.extract_filament_usages(detail)
             if not usages:
                 continue
-            process_print_job(
+            result = process_print_job(
                 title=detail.get("title") or "Cloud print",
                 started_at=detail.get("startTime"),
                 ended_at=detail.get("endTime"),
@@ -130,6 +141,8 @@ class SyncWorker:
                 completion_percent=100,
                 usages=usages,
             )
+            if result.get("ignored"):
+                logger.info("Skipped cloud task %s (ignored or before baseline)", task_id)
 
         newest = tasks[0]
         cursor = newest.get("endTime") or newest.get("startTime")
@@ -139,6 +152,10 @@ class SyncWorker:
 
     def run(self) -> None:
         init_db()
+        if self.cloud.is_configured():
+            with connect() as conn:
+                baseline = ensure_cloud_sync_baseline(conn)
+            logger.info("Cloud sync baseline: %s", baseline)
         mode = self.mqtt.connection_mode()
         if self.cloud.is_configured():
             serial = self.cloud.resolve_serial()

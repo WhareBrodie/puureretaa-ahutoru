@@ -7,6 +7,11 @@ from datetime import datetime, timezone
 from typing import Any
 
 from bambu.filament_rfid import lookup_filament, pick_active_spool
+from bambu.task_guard import (
+    is_before_baseline,
+    is_bambu_task_ignored,
+    should_deduct_auto_import,
+)
 from db import connect, deduct_spool_weight, set_sync_state
 from routes.ams import update_mqtt_tray_state
 
@@ -97,11 +102,15 @@ def process_print_job(
 ) -> dict[str, Any]:
     if bambu_task_id:
         with connect() as conn:
+            if is_bambu_task_ignored(conn, bambu_task_id):
+                return {"ignored": True, "bambu_task_id": bambu_task_id}
             existing = conn.execute(
                 "SELECT id FROM print_jobs WHERE bambu_task_id = ?", (bambu_task_id,)
             ).fetchone()
             if existing:
                 return {"id": existing["id"], "duplicate": True}
+            if is_before_baseline(conn, ended_at):
+                return {"ignored": True, "bambu_task_id": bambu_task_id, "reason": "before_baseline"}
 
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     resolved_usages: list[dict[str, Any]] = []
@@ -153,6 +162,7 @@ def process_print_job(
         print_id = cur.lastrowid
 
         scale = max(0.0, min(completion_percent, 100.0)) / 100.0
+        deduct = should_deduct_auto_import(conn, ended_at=ended_at or now, source=source)
         for usage in resolved_usages:
             conn.execute(
                 """
@@ -171,7 +181,7 @@ def process_print_job(
                     1 if usage.get("spool_id") else 0,
                 ),
             )
-            if usage.get("spool_id") and not needs_review:
+            if usage.get("spool_id") and not needs_review and deduct:
                 deduct_spool_weight(conn, usage["spool_id"], float(usage.get("used_g") or 0) * scale)
 
     logger.info(

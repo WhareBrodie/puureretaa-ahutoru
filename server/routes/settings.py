@@ -7,7 +7,14 @@ import os
 from datetime import datetime, timezone
 from typing import Any
 
+from bambu.cloud_sync import BambuCloudClient
 from bambu.mqtt_client import BambuMqttClient
+from bambu.task_guard import (
+    collect_auto_import_task_ids,
+    ensure_cloud_sync_baseline,
+    ignore_bambu_tasks,
+    restore_auto_import_deductions,
+)
 from db import connect, get_setting, row_to_dict, rows_to_dicts, set_setting, set_sync_state
 
 
@@ -117,12 +124,21 @@ def update_settings(data: dict[str, Any]) -> dict[str, Any]:
 
 
 def skip_cloud_history(delete_imported: bool = False) -> dict[str, Any]:
-    """Stop backfilling Bambu cloud print history; optionally remove auto-imported prints."""
+    """Stop backfilling Bambu cloud print history; optionally undo auto-import deductions."""
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     deleted = 0
+    restored_spools = 0
+    restored_grams = 0.0
+    ignored_tasks = 0
     with connect() as conn:
+        ensure_cloud_sync_baseline(conn)
         set_sync_state(conn, "cloud_tasks_after", now)
+
         if delete_imported:
+            task_ids = collect_auto_import_task_ids(conn)
+            restored_spools, restored_grams = restore_auto_import_deductions(conn)
+            ignored_tasks += ignore_bambu_tasks(conn, task_ids, "cleared_import")
+
             conn.execute(
                 """
                 DELETE FROM print_usages
@@ -135,7 +151,19 @@ def skip_cloud_history(delete_imported: bool = False) -> dict[str, Any]:
                 "DELETE FROM print_jobs WHERE source IN ('cloud', 'mqtt', 'ftps')"
             )
             deleted = cur.rowcount
+
+        client = BambuCloudClient()
+        if client.is_configured():
+            cloud_task_ids = [
+                str(task.get("id") or task.get("taskId") or "")
+                for task in client.fetch_tasks(limit=50)
+            ]
+            ignored_tasks += ignore_bambu_tasks(conn, cloud_task_ids, "skip_cloud_history")
+
     result = get_settings()
     result["cloud_sync_baseline"] = now
     result["deleted_imported_prints"] = deleted
+    result["restored_spools"] = restored_spools
+    result["restored_grams"] = restored_grams
+    result["ignored_tasks"] = ignored_tasks
     return result

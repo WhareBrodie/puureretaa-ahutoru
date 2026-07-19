@@ -48,7 +48,9 @@ Cloud-first sync (recommended setup):
 
 Print completion is imported primarily by **cloud task polling** (`SYNC_CLOUD_INTERVAL_S`, default 300s). MQTT finish events can import sooner when cloud task data is already available.
 
-On first sync the worker may backfill recent Bambu cloud history. After a SpoolStock import, use **Settings → Sync new prints only** once to clear imported prints and set the sync cursor to now.
+Fresh installs set a **sync baseline to now** (no history backfill). After a SpoolStock CSV import, use **Settings → Clear Bambu history and restore spool weights** once: it deletes auto-imported prints, **adds back filament those imports deducted**, blocks those Bambu task IDs permanently, and only syncs new prints going forward. Re-import your SpoolStock CSV if you need exact weights from the file rather than the calculated restore.
+
+Set `BAMBU_SYNC_DEDUCT_FILAMENT=false` in Portainer to log auto-imported prints without changing spool weights (manual prints still deduct).
 
 **Minimum for print auto-import:** cloud credentials (`BAMBU_CLOUD_ACCESS_TOKEN`, or email + password). The LAN vars alone (`BAMBU_PRINTER_IP`, `BAMBU_SERIAL`, `BAMBU_LAN_ACCESS_CODE`) enable local MQTT live AMS state and optional FTPS, but not cloud print history import.
 
@@ -127,6 +129,7 @@ Bambu RFID identifies **filament product** (all PLA Basic Black spools share one
 | `BAMBU_MQTT_MODE` | `auto` | Optional: `auto`, `cloud`, or `local` |
 | `BAMBU_PRINTER_IP` | empty | Optional — local MQTT/FTPS fallback |
 | `BAMBU_LAN_ACCESS_CODE` | — | Optional secret — auto-fetched from bind API if omitted |
+| `BAMBU_SYNC_DEDUCT_FILAMENT` | `true` | Optional — set `false` to import Bambu prints without changing spool weights |
 
 Never commit secrets. Document only in this file and `.env.example` placeholders.
 
@@ -153,6 +156,8 @@ server/
 data/
   migrations/001_init.sql
   migrations/002_projects.sql
+  migrations/003_bambu_filament_rfid.sql
+  migrations/004_bambu_ignored_tasks.sql
   seed_empty_spool_weights.json
 Dockerfile                Multi-stage: npm build → Python Alpine
 docker-compose.yml        Production — Traefik labels, host volume, no ports

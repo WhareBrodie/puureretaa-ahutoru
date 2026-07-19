@@ -87,7 +87,7 @@ export default function SettingsPage() {
   const skipCloudHistory = async () => {
     if (
       !window.confirm(
-        'Skip all Bambu print history before now and remove auto-imported prints? Your current spool weights will not be changed. Manual print logs are kept.',
+        'Clear all Bambu auto-imported prints, restore spool weights those prints deducted, and block that history from coming back on redeploy? Manual print logs are kept.',
       )
     ) {
       return;
@@ -95,9 +95,17 @@ export default function SettingsPage() {
     try {
       const updated = await api.settings.skipCloudHistory(true);
       setSettings(updated);
-      setMessage(
-        `Cloud sync starts from now. Removed ${updated.deleted_imported_prints || 0} auto-imported print(s).`,
-      );
+      const parts = [
+        `Removed ${updated.deleted_imported_prints || 0} auto-imported print(s).`,
+      ];
+      if (updated.restored_spools) {
+        parts.push(`Restored ${Math.round(updated.restored_grams || 0)}g across ${updated.restored_spools} spool(s).`);
+      }
+      if (updated.ignored_tasks) {
+        parts.push(`Blocked ${updated.ignored_tasks} Bambu task(s) from re-import.`);
+      }
+      parts.push('Only new prints from now on will sync.');
+      setMessage(parts.join(' '));
     } catch (err) {
       setError(err.message);
     }
@@ -162,11 +170,12 @@ export default function SettingsPage() {
             FTPS fallback: {settings.bambu_ftps_configured ? 'Yes' : 'No'}
           </div>
           <p className="muted">
-            Imported your whole Bambu history on first sync? Use this once after SpoolStock import — it won&apos;t
-            re-deduct filament (those prints didn&apos;t change spool weights unless you resolved them in Review).
+            After a SpoolStock CSV import, use this once: it removes Bambu history, adds back any
+            filament those imports wrongly deducted, and permanently blocks those cloud tasks from
+            reappearing when the container redeploys.
           </p>
           <button type="button" className="secondary" onClick={skipCloudHistory}>
-            Sync new prints only (clear imported history)
+            Clear Bambu history and restore spool weights
           </button>
           <button onClick={saveSettings}>Save settings</button>
         </div>
