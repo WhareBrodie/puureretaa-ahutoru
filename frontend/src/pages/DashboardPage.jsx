@@ -25,7 +25,7 @@ export default function DashboardPage() {
           <h1>Dashboard</h1>
           <p>Inventory overview and printer status</p>
         </div>
-        <Link className="button" to="/spools">Manage spools</Link>
+        <Link className="button" to="/filaments">Manage filaments</Link>
       </div>
 
       <div className="grid grid-4">

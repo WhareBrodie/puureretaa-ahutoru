@@ -1,6 +1,8 @@
-import { NavLink, Route, Routes } from 'react-router-dom';
+import { NavLink, Navigate, Route, Routes } from 'react-router-dom';
 import DashboardPage from './pages/DashboardPage';
-import SpoolsPage from './pages/SpoolsPage';
+import FilamentsPage from './pages/FilamentsPage';
+import FilamentDetailPage from './pages/FilamentDetailPage';
+import InventoryPage from './pages/InventoryPage';
 import SpoolDetailPage from './pages/SpoolDetailPage';
 import PrintsPage from './pages/PrintsPage';
 import AmsPage from './pages/AmsPage';
@@ -9,7 +11,8 @@ import SettingsPage from './pages/SettingsPage';
 
 const links = [
   { to: '/', label: 'Dashboard', end: true },
-  { to: '/spools', label: 'Spools' },
+  { to: '/filaments', label: 'Filaments' },
+  { to: '/inventory', label: 'Inventory' },
   { to: '/prints', label: 'Prints' },
   { to: '/ams', label: 'AMS' },
   { to: '/stats', label: 'Stats' },
@@ -38,7 +41,10 @@ export default function App() {
       <main className="content">
         <Routes>
           <Route path="/" element={<DashboardPage />} />
-          <Route path="/spools" element={<SpoolsPage />} />
+          <Route path="/filaments" element={<FilamentsPage />} />
+          <Route path="/filaments/:key" element={<FilamentDetailPage />} />
+          <Route path="/inventory" element={<InventoryPage />} />
+          <Route path="/spools" element={<Navigate to="/filaments" replace />} />
           <Route path="/spools/:id" element={<SpoolDetailPage />} />
           <Route path="/prints" element={<PrintsPage />} />
           <Route path="/ams" element={<AmsPage />} />

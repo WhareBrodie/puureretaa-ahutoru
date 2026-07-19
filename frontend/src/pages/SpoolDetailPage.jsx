@@ -62,7 +62,7 @@ export default function SpoolDetailPage() {
     <>
       <div className="page-header">
         <div>
-          <Link to="/spools" className="muted">← Back to spools</Link>
+          <Link to="/filaments" className="muted back-link">← Back to filaments</Link>
           <h1>{spool.color_name || `${spool.brand} ${spool.material}`}</h1>
           <p>{spool.brand} · {spool.material} · {Math.round(spool.remaining_g || 0)}g remaining</p>
         </div>

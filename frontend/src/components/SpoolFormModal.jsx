@@ -20,7 +20,7 @@ const emptyForm = {
 };
 
 export default function SpoolFormModal({ locations, spool, onClose, onSaved }) {
-  const [form, setForm] = useState(spool || emptyForm);
+  const [form, setForm] = useState(spool?.id ? spool : { ...emptyForm, ...spool });
   const [emptyWeights, setEmptyWeights] = useState([]);
   const [error, setError] = useState('');
 
