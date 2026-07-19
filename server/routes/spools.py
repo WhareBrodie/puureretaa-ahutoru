@@ -79,11 +79,14 @@ def get_spool(spool_id: int) -> dict[str, Any]:
 def _normalize_hex(color_hex: str | None) -> str | None:
     if not color_hex:
         return None
-    value = color_hex.strip().lstrip("#")
-    if len(value) == 6:
-        return f"#{value.upper()}"
-    if len(value) == 8:
-        return f"#{value[:6].upper()}"
+    value = color_hex.strip()
+    if value.startswith("{"):
+        return value
+    bare = value.lstrip("#")
+    if len(bare) == 6:
+        return f"#{bare.upper()}"
+    if len(bare) == 8:
+        return f"#{bare[:6].upper()}"
     return color_hex
 
 

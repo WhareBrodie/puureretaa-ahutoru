@@ -1,3 +1,5 @@
+import { colorBackgroundStyle } from './utils/colors';
+
 const API = '/api';
 
 async function request(path, options = {}) {
@@ -107,8 +109,7 @@ export function photoUrl(spool) {
 }
 
 export function colorStyle(hex) {
-  if (!hex) return { background: 'linear-gradient(135deg, #64748b, #334155)' };
-  return { backgroundColor: hex.startsWith('#') ? hex : `#${hex.slice(0, 6)}` };
+  return colorBackgroundStyle(hex);
 }
 
 export function formatDate(value) {

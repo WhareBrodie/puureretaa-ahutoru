@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, colorStyle, formatDate } from '../api';
+import { formatWeight } from '../utils/filaments';
 
 export default function DashboardPage() {
   const [data, setData] = useState(null);
@@ -35,7 +36,7 @@ export default function DashboardPage() {
         </div>
         <div className="card">
           <div className="muted">Filament on hand</div>
-          <div className="stat-value">{Math.round(data.total_remaining_g || 0)}g</div>
+          <div className="stat-value">{formatWeight(data.total_remaining_g || 0)}</div>
         </div>
         <div className="card">
           <div className="muted">Pending reviews</div>

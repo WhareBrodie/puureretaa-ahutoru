@@ -4,6 +4,7 @@ import { api, colorStyle, formatDate, photoUrl } from '../api';
 import SpoolFormModal from '../components/SpoolFormModal';
 import SpoolRing from '../components/SpoolRing';
 import { formatMoney, formatWeight, parseFilamentKey } from '../utils/filaments';
+import { colorSpecLabel } from '../utils/colors';
 
 export default function FilamentDetailPage() {
   const { key } = useParams();
@@ -95,7 +96,7 @@ export default function FilamentDetailPage() {
             {sample?.color_hex && (
               <div className="color-chip">
                 <span className="color-dot" style={colorStyle(sample.color_hex)} />
-                {sample.color_hex}
+                {colorSpecLabel(sample.color_hex)}
               </div>
             )}
           </div>

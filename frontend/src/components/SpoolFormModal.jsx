@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
+import ColorPickerField from './ColorPickerField';
 
 const emptyForm = {
   brand: 'Bambu Lab',
@@ -66,7 +67,9 @@ export default function SpoolFormModal({ locations, spool, onClose, onSaved }) {
           <label>Brand<input value={form.brand} onChange={(e) => update('brand', e.target.value)} required /></label>
           <label>Material<input value={form.material} onChange={(e) => update('material', e.target.value)} required /></label>
           <label>Color name<input value={form.color_name} onChange={(e) => update('color_name', e.target.value)} /></label>
-          <label>Color hex<input type="color" value={(form.color_hex || '#000000').slice(0, 7)} onChange={(e) => update('color_hex', e.target.value)} /></label>
+        </div>
+        <ColorPickerField value={form.color_hex} onChange={(value) => update('color_hex', value)} />
+        <div className="form-grid two">
           <label>Remaining (g)<input type="number" value={form.remaining_g} onChange={(e) => update('remaining_g', e.target.value)} /></label>
           <label>Initial (g)<input type="number" value={form.initial_weight_g} onChange={(e) => update('initial_weight_g', e.target.value)} /></label>
           <label>

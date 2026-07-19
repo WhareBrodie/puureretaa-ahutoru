@@ -30,6 +30,8 @@ Filament inventory and print tracking for a Bambu Lab P1S with full AMS, inspire
 | SQLite DB, photos | Server volume (`/c/containers/vibes/purereta-ahutoru/data/`) | In-app CRUD + Bambu sync |
 | Seed empty-spool weights | Git repo (`data/seed_empty_spool_weights.json`) | Seeded once on first DB init |
 
+`color_hex` accepts a plain hex (`#RRGGBB`) or JSON for multi-colour: `{"mode":"rainbow"}`, or `{"mode":"multi","colors":["#A","#B",...]}` (2–9 colours; dual = 2).
+
 Deploy host admin creates `/c/containers/vibes/purereta-ahutoru/data` once before first deploy.
 
 **localhost vs production:** separate databases. Use production URL for day-to-day inventory.
