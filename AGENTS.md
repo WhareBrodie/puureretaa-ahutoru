@@ -125,7 +125,7 @@ Developer Mode on the printer is **not** required for cloud sync.
 
 Never commit secrets. Document only in this file and `.env.example` placeholders.
 
-**Portainer:** secret values are set in the stack environment UI only. `docker-compose.yml` declares `${BAMBU_*}` placeholders so those values are passed into the container at deploy time — setting them in Portainer alone is not enough without the compose entries.
+**Portainer:** set the four `BAMBU_*` vars above in the stack environment UI. `docker-compose.yml` declares `${...}` placeholders so those values reach the container at deploy time. Other optional vars in the table below are read from the process environment if you add matching compose entries later.
 
 ## Directory map
 
