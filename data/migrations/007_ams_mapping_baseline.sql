@@ -10,3 +10,5 @@ SET baseline_tray_info_idx = mqtt_tray_info_idx,
     baseline_tray_type = mqtt_tray_type,
     baseline_tray_color = mqtt_tray_color
 WHERE spool_id IS NOT NULL;
+
+INSERT INTO schema_version (version) VALUES (7);

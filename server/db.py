@@ -54,6 +54,17 @@ def connect(root: Path | None = None) -> Iterator[sqlite3.Connection]:
         conn.close()
 
 
+def _repair_schema_version_7(conn: sqlite3.Connection) -> None:
+    """Migration 007 originally omitted schema_version bump; repair if columns already exist."""
+    version_row = conn.execute("SELECT MAX(version) AS v FROM schema_version").fetchone()
+    current_version = version_row["v"] if version_row and version_row["v"] is not None else 0
+    if current_version >= 7:
+        return
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(ams_slot_mappings)")}
+    if "baseline_tray_info_idx" in columns:
+        conn.execute("INSERT INTO schema_version (version) VALUES (7)")
+
+
 def run_migrations(root: Path | None = None) -> None:
     root = root or get_root()
     migrations_dir = root / "data" / "migrations"
@@ -68,6 +79,8 @@ def run_migrations(root: Path | None = None) -> None:
                 sql = migration_file.read_text(encoding="utf-8")
                 conn.executescript(sql)
             return
+
+        _repair_schema_version_7(conn)
 
         version_row = conn.execute("SELECT MAX(version) AS v FROM schema_version").fetchone()
         current_version = version_row["v"] if version_row else 0
