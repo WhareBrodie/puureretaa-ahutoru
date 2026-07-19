@@ -89,10 +89,11 @@ class BambuMqttClient:
         if os.environ.get("BAMBU_MQTT_MODE", "auto").lower() == "cloud":
             return "cloud" if self._cloud_ready() else None
 
-        if self._local_ready():
-            return "local"
+        # auto: prefer cloud when configured — deploy host often cannot route to printer LAN IP
         if self._cloud_ready():
             return "cloud"
+        if self._local_ready():
+            return "local"
         return None
 
     def _cloud_ready(self) -> bool:

@@ -50,9 +50,12 @@ export default function AmsPage() {
       const result = await api.ams.refresh();
       setLive(result);
       if (result.probe?.ok) {
-        setMessage(`AMS refreshed — trays: ${Object.keys(result.ams || {}).join(', ') || 'none'}`);
+        setMessage(`AMS refreshed via ${result.probe.mode || 'mqtt'} — trays: ${Object.keys(result.ams || {}).join(', ') || 'none'}`);
       } else {
-        setError(result.probe?.error || 'Refresh did not return AMS tray data');
+        const parts = [result.probe?.error || 'Refresh did not return AMS tray data'];
+        if (result.probe?.hint) parts.push(result.probe.hint);
+        if (result.probe?.note) parts.push(result.probe.note);
+        setError(parts.join(' '));
       }
     } catch (err) {
       setError(err.message);

@@ -45,10 +45,10 @@ def _mqtt_mode() -> str | None:
         return "local" if local_ready else None
     if mode_env == "cloud":
         return "cloud" if cloud_ready else None
-    if local_ready:
-        return "local"
     if cloud_ready:
         return "cloud"
+    if local_ready:
+        return "local"
     return None
 
 

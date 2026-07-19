@@ -54,7 +54,7 @@ Set `BAMBU_SYNC_DEDUCT_FILAMENT=false` in Portainer to log auto-imported prints 
 
 **Minimum for print auto-import:** cloud credentials (`BAMBU_CLOUD_ACCESS_TOKEN`, or email + password). The LAN vars alone (`BAMBU_PRINTER_IP`, `BAMBU_SERIAL`, `BAMBU_LAN_ACCESS_CODE`) enable local MQTT live AMS state and optional FTPS, but not cloud print history import.
 
-When both cloud token and LAN vars are set, **local MQTT is preferred** for live AMS tray/RFID updates; cloud API still handles print history.
+When both cloud token and LAN vars are set, **cloud MQTT is preferred in auto mode** (the Portainer/deploy host usually cannot reach the printer LAN IP). Set `BAMBU_MQTT_MODE=local` only if the container can reach `BAMBU_PRINTER_IP:8883`.
 
 ### How to get `BAMBU_CLOUD_ACCESS_TOKEN`
 
@@ -107,7 +107,7 @@ Developer Mode on the printer is **not** required for cloud sync.
 
 Bambu RFID identifies **filament product** (all PLA Basic Black spools share one tag), not individual spools. Teach once by mapping an AMS slot while RFID is visible (`bambu_filament_rfid` table). Future loads auto-map using the active spool heuristic (partially-used spool; if all full, any match).
 
-**AMS live state troubleshooting:** Settings → **Bambu sync diagnostics** shows `mqtt_last_ams_at`, `mqtt_last_pushall_has_ams`, etc. AMS tray arrays only arrive in full `pushall` snapshots (not print deltas). Use **AMS setup → Refresh from printer** (`POST /api/ams/refresh`) for a one-shot local MQTT probe. Manual slot dropdown mappings still work for print deduction even when MQTT tray fields are empty.
+**AMS live state troubleshooting:** Settings → **Bambu sync diagnostics** shows `mqtt_last_ams_at`, `mqtt_last_pushall_has_ams`, etc. AMS tray arrays only arrive in full `pushall` snapshots (not print deltas). Use **AMS setup → Refresh from printer** (`POST /api/ams/refresh`) for a one-shot MQTT probe (tries local, then cloud). If refresh times out on the printer IP, the deploy host cannot reach local MQTT — use cloud mode or fix network routing. Manual slot dropdown mappings still work for print deduction even when MQTT tray fields are empty.
 
 ### Non-Bambu filament
 
