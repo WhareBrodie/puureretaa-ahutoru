@@ -12,6 +12,34 @@ def _norm(value: str | None) -> str:
     return (value or "").strip()
 
 
+def _find_learned_row(
+    conn,
+    *,
+    tag_uid: str | None,
+    tray_info_idx: str | None,
+) -> dict[str, Any] | None:
+    tray_info_idx = _norm(tray_info_idx) or None
+    tag_uid = _norm(tag_uid) or None
+    if tray_info_idx:
+        row = conn.execute(
+            "SELECT * FROM bambu_filament_rfid WHERE tray_info_idx = ?",
+            (tray_info_idx,),
+        ).fetchone()
+        return dict(row) if row else None
+    if tag_uid:
+        row = conn.execute(
+            """
+            SELECT * FROM bambu_filament_rfid
+            WHERE tag_uid = ?
+            ORDER BY CASE WHEN tray_info_idx IS NULL OR tray_info_idx = '' THEN 0 ELSE 1 END, id
+            LIMIT 1
+            """,
+            (tag_uid,),
+        ).fetchone()
+        return dict(row) if row else None
+    return None
+
+
 def learn_filament_rfid(
     conn,
     *,
@@ -32,7 +60,7 @@ def learn_filament_rfid(
     if not tag_uid and not tray_info_idx:
         return
 
-    existing = lookup_filament(conn, tag_uid=tag_uid, tray_info_idx=tray_info_idx)
+    existing = _find_learned_row(conn, tag_uid=tag_uid, tray_info_idx=tray_info_idx)
     if existing:
         conn.execute(
             """
@@ -64,9 +92,9 @@ def lookup_filament(
     tag_uid: str | None = None,
     tray_info_idx: str | None = None,
 ) -> dict[str, Any] | None:
-    tag_uid = _norm(tag_uid) or None
+    """Resolve a learned product. tray_info_idx is authoritative; never guess colour from tag_uid alone."""
     tray_info_idx = _norm(tray_info_idx) or None
-    # tray_info_idx is colour/SKU-specific; tag_uid is often shared across many Bambu PLA variants.
+    tag_uid = _norm(tag_uid) or None
     if tray_info_idx:
         row = conn.execute(
             "SELECT * FROM bambu_filament_rfid WHERE tray_info_idx = ?",
@@ -74,9 +102,13 @@ def lookup_filament(
         ).fetchone()
         if row:
             return dict(row)
+        return None
     if tag_uid:
         row = conn.execute(
-            "SELECT * FROM bambu_filament_rfid WHERE tag_uid = ?",
+            """
+            SELECT * FROM bambu_filament_rfid
+            WHERE tag_uid = ? AND (tray_info_idx IS NULL OR tray_info_idx = '')
+            """,
             (tag_uid,),
         ).fetchone()
         if row:
@@ -135,7 +167,7 @@ def teach_from_spool(conn, spool_id: int, tray: dict[str, Any]) -> None:
 
 
 def sync_slot_for_tray(conn, printer_id: int, slot: int, tray: dict[str, Any]) -> int | None:
-    """Update MQTT tray fields; learn or auto-map slot from RFID product + active spool."""
+    """Update MQTT tray fields; learn products by tray_info_idx without clobbering manual slot picks."""
     conn.execute(
         """
         UPDATE ams_slot_mappings
@@ -183,7 +215,7 @@ def sync_slot_for_tray(conn, printer_id: int, slot: int, tray: dict[str, Any]) -
         return spool_id
 
     if not tag_uid and not tray_info_idx:
-        return None
+        return int(mapping["spool_id"]) if mapping and mapping["spool_id"] else None
 
     if mapping and mapping["spool_id"]:
         teach_from_spool(conn, int(mapping["spool_id"]), tray)

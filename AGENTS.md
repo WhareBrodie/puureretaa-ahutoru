@@ -107,7 +107,7 @@ Copy the printed token into Portainer as `BAMBU_CLOUD_ACCESS_TOKEN`.
 
 Developer Mode on the printer is **not** required for cloud sync.
 
-Bambu RFID identifies **filament product** (all PLA Basic Black spools share one tag), not individual spools. The app keys learned products primarily on `tray_info_idx` (colour/SKU); `tag_uid` alone is not unique across colours. Teach once by mapping an AMS slot while RFID is visible (`bambu_filament_rfid` table). Future loads auto-map using the active spool heuristic (partially-used spool; if all full, any match).
+Bambu RFID identifies **filament product** by **`tray_info_idx`** (colour/SKU). `tag_uid` is shared across many PLA colours — teaching Black must not overwrite Jade White. Manual slot picks stay put until that slot's `tray_info_idx` is learned; then future loads of the same product auto-map via the active-spool heuristic.
 
 **AMS live state troubleshooting:** Settings → **Bambu sync diagnostics** shows `mqtt_last_ams_at`, `mqtt_last_pushall_has_ams`, etc. AMS tray arrays only arrive in full `pushall` snapshots (not print deltas). Use **AMS setup → Refresh from printer** (`POST /api/ams/refresh`) for a one-shot MQTT probe (tries local, then cloud). If refresh times out on the printer IP, the deploy host cannot reach local MQTT — use cloud mode or fix network routing. Manual slot dropdown mappings still work for print deduction even when MQTT tray fields are empty.
 
@@ -163,6 +163,7 @@ data/
   migrations/003_bambu_filament_rfid.sql
   migrations/004_bambu_ignored_tasks.sql
   migrations/005_spool_weigh_profiles.sql
+  migrations/006_bambu_rfid_tray_idx.sql
   seed_empty_spool_weights.json
 Dockerfile                Multi-stage: npm build → Python Alpine
 docker-compose.yml        Production — Traefik labels, host volume, no ports
