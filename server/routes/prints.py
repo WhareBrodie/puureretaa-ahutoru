@@ -5,7 +5,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-from db import connect, ceil_usage_g, deduct_spool_weight, row_to_dict, rows_to_dicts, scaled_deduction_g
+from db import connect, ceil_usage_g, row_to_dict, rows_to_dicts, scaled_deduction_g
+from bambu.print_processor import deduct_print_usage
 
 
 def _print_query(where: str = "", params: tuple[Any, ...] = ()) -> str:
@@ -103,11 +104,12 @@ def create_manual_print(data: dict[str, Any]) -> dict[str, Any]:
         for usage in usages:
             spool_id = usage.get("spool_id")
             used_g = ceil_usage_g(float(usage.get("used_g") or 0))
-            conn.execute(
+            cur = conn.execute(
                 """
                 INSERT INTO print_usages (
-                    print_job_id, ams_slot, spool_id, material, color, used_g, used_m, resolved
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    print_job_id, ams_slot, spool_id, material, color, used_g, used_m, resolved,
+                    filament_deducted
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
                 """,
                 (
                     print_id,
@@ -121,7 +123,13 @@ def create_manual_print(data: dict[str, Any]) -> dict[str, Any]:
                 ),
             )
             if spool_id and used_g > 0:
-                deduct_spool_weight(conn, spool_id, used_g)
+                deduct_print_usage(
+                    conn,
+                    usage_id=int(cur.lastrowid),
+                    spool_id=int(spool_id),
+                    used_g=used_g,
+                    completion_percent=100.0,
+                )
     return get_print(print_id)
 
 
@@ -188,10 +196,12 @@ def resolve_print_review(print_id: int, assignments: list[dict[str, Any]], skip_
                 (spool_id, 1 if spool_id else 0, usage_id),
             )
             if spool_id and not skip_deduction and usage["used_g"] > 0:
-                deduct_spool_weight(
+                deduct_print_usage(
                     conn,
-                    spool_id,
-                    scaled_deduction_g(usage["used_g"], job["completion_percent"]),
+                    usage_id=int(usage_id),
+                    spool_id=int(spool_id),
+                    used_g=float(usage["used_g"]),
+                    completion_percent=float(job["completion_percent"]),
                 )
 
         unresolved = conn.execute(
@@ -231,10 +241,12 @@ def resolve_print_review_v2(print_id: int, data: dict[str, Any]) -> dict[str, An
                 (spool_id, 1 if spool_id else 0, usage_id),
             )
             if spool_id and not skip and usage["used_g"] > 0:
-                deduct_spool_weight(
+                deduct_print_usage(
                     conn,
-                    spool_id,
-                    scaled_deduction_g(usage["used_g"], job["completion_percent"]),
+                    usage_id=int(usage_id),
+                    spool_id=int(spool_id),
+                    used_g=float(usage["used_g"]),
+                    completion_percent=float(job["completion_percent"]),
                 )
 
         unresolved = conn.execute(
@@ -263,7 +275,7 @@ def delete_print(print_id: int, restore_weight: bool = True) -> dict[str, Any]:
                 (print_id,),
             ).fetchall()
             for usage in usages:
-                if not usage["spool_id"] or usage["used_g"] <= 0:
+                if not usage["spool_id"] or usage["used_g"] <= 0 or not usage["filament_deducted"]:
                     continue
                 grams = scaled_deduction_g(usage["used_g"], job["completion_percent"])
                 conn.execute(
@@ -280,3 +292,40 @@ def delete_print(print_id: int, restore_weight: bool = True) -> dict[str, Any]:
         conn.execute("DELETE FROM print_jobs WHERE id = ?", (print_id,))
 
     return {"ok": True, "restored_g": round(restored_g, 2)}
+
+
+def apply_missing_deductions(print_id: int) -> dict[str, Any]:
+    with connect() as conn:
+        job = conn.execute("SELECT * FROM print_jobs WHERE id = ?", (print_id,)).fetchone()
+        if not job:
+            raise KeyError("print not found")
+
+        usages = conn.execute(
+            "SELECT * FROM print_usages WHERE print_job_id = ?",
+            (print_id,),
+        ).fetchall()
+        deducted: list[dict[str, Any]] = []
+        for usage in usages:
+            if not usage["spool_id"] or usage["used_g"] <= 0 or usage["filament_deducted"]:
+                continue
+            grams = scaled_deduction_g(usage["used_g"], job["completion_percent"])
+            deduct_print_usage(
+                conn,
+                usage_id=int(usage["id"]),
+                spool_id=int(usage["spool_id"]),
+                used_g=float(usage["used_g"]),
+                completion_percent=float(job["completion_percent"]),
+            )
+            deducted.append(
+                {
+                    "usage_id": usage["id"],
+                    "spool_id": usage["spool_id"],
+                    "ams_slot": usage["ams_slot"],
+                    "grams": grams,
+                }
+            )
+
+    if not deducted:
+        raise ValueError("no pending filament deductions for this print")
+
+    return {"ok": True, "deducted": deducted, "print": get_print(print_id)}

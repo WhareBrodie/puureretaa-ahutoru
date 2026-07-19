@@ -105,6 +105,7 @@ def restore_auto_import_deductions(conn) -> tuple[int, float]:
         WHERE pj.source IN ('cloud', 'mqtt', 'ftps')
           AND pu.spool_id IS NOT NULL
           AND pu.used_g > 0
+          AND pu.filament_deducted = 1
         """
     ).fetchall()
     restored_by_spool: dict[int, float] = {}

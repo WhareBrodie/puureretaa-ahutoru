@@ -54,6 +54,8 @@ Sync baseline lives in `cloud_sync_baseline` (timestamp). Poll fetches the **50 
 
 **Prints → Delete** removes a print and restores any filament that print deducted back to linked spools.
 
+Auto-import deducts filament **per mapped AMS slot**, even when other slots on the same print still need review. Each usage line tracks `filament_deducted` so restore/delete/review cannot double-deduct. For prints imported before this fix, use **Prints → Deduct** (`POST /api/prints/:id/apply-deductions`) to apply pending deductions once linked spools are correct.
+
 Print usage is always rounded **up** to one decimal place for display and spool deduction (e.g. 11.61 g → 11.7 g).
 
 Fresh installs set a **sync baseline to now** (no history backfill). After a SpoolStock CSV import, use **Settings → Clear Bambu history and restore spool weights** once: it deletes auto-imported prints, **adds back filament those imports deducted**, blocks those Bambu task IDs permanently, and only syncs new prints going forward. Re-import your SpoolStock CSV if you need exact weights from the file rather than the calculated restore.
@@ -196,7 +198,7 @@ docker compose -f docker-compose.yml -f docker-compose.local.yml up --build
 
 - `GET /api/dashboard`, `/api/stats`, `/api/alerts`
 - `GET/POST/PUT/DELETE /api/spools`, `/api/locations`
-- `GET/POST /api/prints`, `PUT /api/prints/:id`, `POST /api/prints/:id/review` — optional `project_id` on create/update
+- `GET/POST /api/prints`, `PUT /api/prints/:id`, `POST /api/prints/:id/review`, `POST /api/prints/:id/apply-deductions` — optional `project_id` on create/update
 - `GET/POST/PUT/DELETE /api/projects` — grouped prints with aggregated filament cost
 - `GET/PUT /api/ams/slots`, `GET /api/ams/live`
 - `GET /api/export/csv`, `POST /api/import/csv` — native export or **SpoolStock export** import (auto-detected). SpoolStock re-import matches by `short_id` and preserves fields not in the CSV (e.g. `location_id`).

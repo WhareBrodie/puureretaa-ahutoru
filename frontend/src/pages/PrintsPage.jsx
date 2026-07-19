@@ -39,6 +39,23 @@ export default function PrintsPage() {
     }
   };
 
+  const hasPendingDeduction = (print) =>
+    (print.usages || []).some(
+      (usage) => usage.spool_id && usage.used_g > 0 && !usage.filament_deducted,
+    );
+
+  const handleApplyDeductions = async (print) => {
+    if (!window.confirm(`Apply filament deduction for "${print.title}" from linked spools?`)) {
+      return;
+    }
+    try {
+      await api.prints.applyDeductions(print.id);
+      load();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
   return (
     <>
       <div className="page-header">
@@ -86,6 +103,9 @@ export default function PrintsPage() {
                     <button className="secondary" onClick={() => setEditPrint(print)}>Edit</button>
                     {print.needs_review && (
                       <button className="secondary" onClick={() => setReviewPrint(print)}>Review</button>
+                    )}
+                    {hasPendingDeduction(print) && (
+                      <button className="secondary" onClick={() => handleApplyDeductions(print)}>Deduct</button>
                     )}
                     <button type="button" className="secondary danger-text" onClick={() => handleDelete(print)}>Delete</button>
                   </div>

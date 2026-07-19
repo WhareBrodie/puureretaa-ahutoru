@@ -17,6 +17,39 @@ from db import connect, ceil_usage_g, deduct_spool_weight, scaled_deduction_g, s
 logger = logging.getLogger("bambu.processor")
 
 
+def normalize_ams_slot(value: Any) -> int:
+    if value is None or value == "":
+        return 1
+    slot = int(value)
+    if slot < 1:
+        slot += 1
+    return max(1, min(4, slot))
+
+
+def deduct_print_usage(
+    conn,
+    *,
+    usage_id: int,
+    spool_id: int,
+    used_g: float,
+    completion_percent: float,
+) -> None:
+    row = conn.execute(
+        "SELECT filament_deducted FROM print_usages WHERE id = ?",
+        (usage_id,),
+    ).fetchone()
+    if row and row["filament_deducted"]:
+        return
+    grams = scaled_deduction_g(used_g, completion_percent)
+    if grams <= 0:
+        return
+    deduct_spool_weight(conn, spool_id, grams)
+    conn.execute(
+        "UPDATE print_usages SET filament_deducted = 1 WHERE id = ?",
+        (usage_id,),
+    )
+
+
 def _color_distance(hex_a: str | None, hex_b: str | None) -> int:
     if not hex_a or not hex_b:
         return 999
@@ -117,7 +150,7 @@ def process_print_job(
 
     with connect() as conn:
         for usage in usages:
-            slot = usage.get("ams_slot") or 1
+            slot = normalize_ams_slot(usage.get("ams_slot"))
             spool_id = resolve_spool_for_slot(
                 conn,
                 printer_id,
@@ -165,11 +198,12 @@ def process_print_job(
         deduct = should_deduct_auto_import(conn, ended_at=ended_at or now, source=source)
         skip_deduct = status in {"cancelled", "failed"} and scale <= 0
         for usage in resolved_usages:
-            conn.execute(
+            cur = conn.execute(
                 """
                 INSERT INTO print_usages (
-                    print_job_id, ams_slot, spool_id, material, color, used_g, used_m, resolved
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    print_job_id, ams_slot, spool_id, material, color, used_g, used_m, resolved,
+                    filament_deducted
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
                 """,
                 (
                     print_id,
@@ -182,11 +216,19 @@ def process_print_job(
                     1 if usage.get("spool_id") else 0,
                 ),
             )
-            if usage.get("spool_id") and not needs_review and deduct and not skip_deduct:
-                deduct_spool_weight(
+            usage_id = cur.lastrowid
+            if (
+                usage.get("spool_id")
+                and deduct
+                and not skip_deduct
+                and float(usage.get("used_g") or 0) > 0
+            ):
+                deduct_print_usage(
                     conn,
-                    usage["spool_id"],
-                    scaled_deduction_g(float(usage.get("used_g") or 0), completion_percent),
+                    usage_id=usage_id,
+                    spool_id=int(usage["spool_id"]),
+                    used_g=float(usage.get("used_g") or 0),
+                    completion_percent=completion_percent,
                 )
 
     logger.info(

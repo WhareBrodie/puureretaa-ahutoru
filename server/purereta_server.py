@@ -253,6 +253,10 @@ class PureretaHandler(SimpleHTTPRequestHandler):
                 self.end_json(200, prints.resolve_print_review_v2(int(parts[2]), self.read_json_body()))
                 return
 
+            if len(parts) == 4 and parts[0] == "api" and parts[1] == "prints" and parts[3] == "apply-deductions":
+                self.end_json(200, prints.apply_missing_deductions(int(parts[2])))
+                return
+
             if parts == ["api", "import", "csv"]:
                 body = self.read_json_body()
                 result = csv_io.import_spools_csv(
