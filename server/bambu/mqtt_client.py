@@ -187,7 +187,7 @@ class BambuMqttClient:
         client.connect(ip, 8883, keepalive=60)
         client.loop_start()
         while not self._stop.is_set():
-            if time.time() - self._last_pushall > 300:
+            if time.time() - self._last_pushall > 60:
                 self._request_pushall(client, topic_request)
             time.sleep(1)
         client.loop_stop()
@@ -208,9 +208,32 @@ class BambuMqttClient:
         client.publish(topic_request, payload)
         self._last_pushall = time.time()
 
+    def _parse_trays(self, payload: dict[str, Any]) -> dict[str, Any]:
+        print_data = payload.get("print") or {}
+        # Newer firmware nests AMS under print.ams; older payloads used top-level ams.
+        ams_data = payload.get("ams") or print_data.get("ams") or {}
+        trays: dict[str, Any] = {}
+        ams_units = ams_data.get("ams") or []
+        if ams_units:
+            unit = ams_units[0]
+            for index, tray in enumerate(unit.get("tray") or [], start=1):
+                slot = str(int(tray.get("id", index - 1)) + 1) if str(tray.get("id", "")).isdigit() else str(index)
+                tag_uid = tray.get("tag_uid")
+                if tag_uid and set(str(tag_uid).strip("0")) == set():
+                    tag_uid = None
+                trays[slot] = {
+                    "tray_type": tray.get("tray_type"),
+                    "tray_color": tray.get("tray_color"),
+                    "tray_info_idx": tray.get("tray_info_idx"),
+                    "tag_uid": tag_uid,
+                    "remain": tray.get("remain"),
+                }
+        if trays:
+            logger.debug("Parsed AMS trays from MQTT: %s", list(trays.keys()))
+        return trays
+
     def _handle_message(self, payload: dict[str, Any]) -> None:
         print_data = payload.get("print") or {}
-        ams_data = payload.get("ams") or {}
         gcode_state = print_data.get("gcode_state", self._last_state)
 
         printer_state = {
@@ -224,18 +247,7 @@ class BambuMqttClient:
             "total_layer_num": print_data.get("total_layer_num"),
         }
 
-        trays: dict[str, Any] = {}
-        ams_units = ams_data.get("ams") or []
-        if ams_units:
-            unit = ams_units[0]
-            for index, tray in enumerate(unit.get("tray") or [], start=1):
-                trays[str(index)] = {
-                    "tray_type": tray.get("tray_type"),
-                    "tray_color": tray.get("tray_color"),
-                    "tray_info_idx": tray.get("tray_info_idx"),
-                    "tag_uid": tray.get("tag_uid"),
-                    "remain": tray.get("remain"),
-                }
+        trays = self._parse_trays(payload)
 
         if self.on_state_update:
             self.on_state_update(printer_state, trays)
