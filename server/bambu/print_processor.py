@@ -6,14 +6,13 @@ import logging
 from datetime import datetime, timezone
 from typing import Any
 
-from bambu.filament_rfid import lookup_filament, pick_active_spool
+from bambu.filament_rfid import lookup_filament, pick_active_spool, sync_slot_for_tray
 from bambu.task_guard import (
     is_before_baseline,
     is_bambu_task_ignored,
     should_deduct_auto_import,
 )
 from db import connect, deduct_spool_weight, set_sync_state
-from routes.ams import update_mqtt_tray_state
 
 logger = logging.getLogger("bambu.processor")
 
@@ -206,5 +205,10 @@ def store_live_state(printer_state: dict[str, Any], trays: dict[str, Any]) -> No
             set_sync_state(conn, "live_ams_state", json.dumps(trays))
             set_sync_state(conn, "mqtt_last_ams_at", now)
             set_sync_state(conn, "mqtt_last_ams_slots", ",".join(sorted(trays.keys())))
+
+    # Slot mapping updates use their own transaction — never nest connect() inside the block above
+    # or SQLite can lock and roll back live_ams_state even though trays were parsed.
+    if trays:
+        with connect() as conn:
             for slot_str, tray in trays.items():
-                update_mqtt_tray_state(1, int(slot_str), tray)
+                sync_slot_for_tray(conn, 1, int(slot_str), tray)
