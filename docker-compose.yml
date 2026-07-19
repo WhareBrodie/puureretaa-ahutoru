@@ -12,6 +12,16 @@ services:
       - PUBLIC_URL=http://xn--preret-ahutoru-qub40o.internal
       - DEFAULT_LOW_STOCK_THRESHOLD_G=100
       - SYNC_CLOUD_INTERVAL_S=300
+      # Secrets/non-defaults: set values in Portainer stack env; empty if unset
+      - BAMBU_CLOUD_ACCESS_TOKEN=${BAMBU_CLOUD_ACCESS_TOKEN:-}
+      - BAMBU_CLOUD_EMAIL=${BAMBU_CLOUD_EMAIL:-}
+      - BAMBU_CLOUD_PASSWORD=${BAMBU_CLOUD_PASSWORD:-}
+      - BAMBU_CLOUD_DEVICE_ID=${BAMBU_CLOUD_DEVICE_ID:-}
+      - BAMBU_SERIAL=${BAMBU_SERIAL:-}
+      - BAMBU_PRINTER_IP=${BAMBU_PRINTER_IP:-}
+      - BAMBU_LAN_ACCESS_CODE=${BAMBU_LAN_ACCESS_CODE:-}
+      - BAMBU_MQTT_BROKER=${BAMBU_MQTT_BROKER:-us.mqtt.bambulab.com}
+      - BAMBU_MQTT_MODE=${BAMBU_MQTT_MODE:-auto}
     networks:
       - proxy
     labels:
