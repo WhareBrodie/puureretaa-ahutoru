@@ -52,14 +52,16 @@ export default function DashboardPage() {
 
       <div className="grid grid-2" style={{ marginTop: '1rem' }}>
         <div className="card">
-          <h2>Low stock</h2>
+          <h2>Low / no stock</h2>
           {data.low_stock_alerts?.length ? (
             <ul>
               {data.low_stock_alerts.map((alert) => (
                 <li key={`${alert.type}-${alert.brand}-${alert.material}-${alert.color_name || ''}-${alert.material || ''}`}>
                   {alert.type === 'material_low'
                     ? `${alert.material}: ${Math.round(alert.total_g)}g left`
-                    : `${alert.brand} ${alert.material} ${alert.color_name || ''} — ${Math.round(alert.total_remaining_g || 0)}g total`}
+                    : `${alert.brand} ${alert.material} ${alert.color_name || ''} — ${
+                        alert.no_stock ? 'No stock' : `${Math.round(alert.total_remaining_g || 0)}g total`
+                      }`}
                 </li>
               ))}
             </ul>

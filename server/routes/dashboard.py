@@ -13,16 +13,15 @@ from routes.spools import list_spools
 
 
 def _filament_stock_groups() -> list[dict[str, Any]]:
-    """Group non-depleted spools by brand+material+color and sum remaining weight."""
+    """Group spools by brand+material+color and sum remaining weight (includes depleted-only filaments)."""
     spools = list_spools()
     with connect() as conn:
         default_threshold = float(get_setting(conn, "default_low_stock_threshold_g", "100") or 100)
 
     groups: dict[str, dict[str, Any]] = {}
     for spool in spools:
-        if (spool.get("remaining_g") or 0) <= 0:
-            continue
         key = f"{spool['brand']}|{spool['material']}|{spool.get('color_name') or ''}"
+        remaining = spool.get("remaining_g") or 0
         if key not in groups:
             groups[key] = {
                 "brand": spool["brand"],
@@ -31,13 +30,19 @@ def _filament_stock_groups() -> list[dict[str, Any]]:
                 "color_hex": spool.get("color_hex"),
                 "total_remaining_g": 0.0,
                 "spool_count": 0,
+                "active_spool_count": 0,
                 "threshold_g": spool.get("low_stock_threshold_g") or default_threshold,
             }
         group = groups[key]
-        group["total_remaining_g"] += spool.get("remaining_g") or 0
+        group["total_remaining_g"] += remaining
         group["spool_count"] += 1
+        if remaining > 0:
+            group["active_spool_count"] += 1
         if spool.get("color_hex") and not group.get("color_hex"):
             group["color_hex"] = spool["color_hex"]
+
+    for group in groups.values():
+        group["no_stock"] = group["active_spool_count"] == 0 and group["spool_count"] > 0
 
     return list(groups.values())
 
@@ -66,6 +71,7 @@ def get_low_stock_alerts() -> list[dict[str, Any]]:
                     "total_remaining_g": group["total_remaining_g"],
                     "threshold_g": group["threshold_g"],
                     "spool_count": group["spool_count"],
+                    "no_stock": group["no_stock"],
                 }
             )
     with connect() as conn:
@@ -189,6 +195,7 @@ def get_reorder_suggestions() -> list[dict[str, Any]]:
                     "total_remaining_g": group["total_remaining_g"],
                     "threshold_g": group["threshold_g"],
                     "spool_count": group["spool_count"],
+                    "no_stock": group["no_stock"],
                 }
             )
     return sorted(

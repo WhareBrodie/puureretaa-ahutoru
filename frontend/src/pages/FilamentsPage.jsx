@@ -132,7 +132,9 @@ export default function FilamentsPage() {
                       <div className="mini-bar-fill" style={{ width: `${Math.round(pct * 100)}%`, ...colorStyle(filament.color_hex) }} />
                     </div>
                   </td>
-                  <td>{filament.has_low_stock && <span className="alert-icon" title="Low stock">⚠</span>}</td>
+                  <td>{filament.has_low_stock && (
+                    <span className="alert-icon" title={filament.no_stock ? 'No stock' : 'Low stock'}>⚠</span>
+                  )}</td>
                 </tr>
               );
             })}

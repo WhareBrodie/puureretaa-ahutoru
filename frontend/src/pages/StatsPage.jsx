@@ -65,17 +65,18 @@ export default function StatsPage() {
           <BarChart rows={stats.monthly_usage || []} labelKey="month" valueKey="total_g" />
         </div>
         <div className="card">
-          <h2>Low stock</h2>
+          <h2>Low / no stock</h2>
           {alerts?.reorder?.length ? (
             <ul>
               {alerts.reorder.map((item) => (
                 <li key={`${item.brand}-${item.material}-${item.color_name || ''}`}>
-                  {item.brand} {item.material} {item.color_name} — {Math.round(item.total_remaining_g || 0)}g total
+                  {item.brand} {item.material} {item.color_name} —{' '}
+                  {item.no_stock ? 'No stock' : `${Math.round(item.total_remaining_g || 0)}g total`}
                 </li>
               ))}
             </ul>
           ) : (
-            <p className="muted">No filaments are low yet.</p>
+            <p className="muted">No filaments are low or out of stock.</p>
           )}
         </div>
       </div>

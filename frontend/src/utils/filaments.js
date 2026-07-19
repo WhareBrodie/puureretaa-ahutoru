@@ -14,6 +14,21 @@ export function isDepleted(spool) {
 }
 
 export function groupSpoolsIntoFilaments(spools, { includeDepleted = false } = {}) {
+  const stockByKey = new Map();
+  for (const spool of spools) {
+    const key = `${spool.brand}|${spool.material}|${spool.color_name || ''}`;
+    if (!stockByKey.has(key)) {
+      stockByKey.set(key, {
+        total_remaining_g: 0,
+        low_stock_threshold_g: spool.low_stock_threshold_g ?? 100,
+        active_spool_count: 0,
+      });
+    }
+    const stock = stockByKey.get(key);
+    stock.total_remaining_g += spool.remaining_g || 0;
+    if (!isDepleted(spool)) stock.active_spool_count += 1;
+  }
+
   const filtered = includeDepleted ? spools : spools.filter((s) => !isDepleted(s));
   const map = new Map();
 
@@ -37,18 +52,43 @@ export function groupSpoolsIntoFilaments(spools, { includeDepleted = false } = {
     if (spool.color_hex && !group.color_hex) group.color_hex = spool.color_hex;
   }
 
+  // Include depleted-only filaments so no-stock types still appear in inventory views.
+  for (const spool of spools) {
+    const key = `${spool.brand}|${spool.material}|${spool.color_name || ''}`;
+    const stock = stockByKey.get(key);
+    if (!stock || stock.active_spool_count > 0 || map.has(key)) continue;
+    map.set(key, {
+      brand: spool.brand,
+      material: spool.material,
+      color_name: spool.color_name,
+      color_hex: spool.color_hex,
+      photo_path: spool.photo_path,
+      spools: spools.filter(
+        (item) =>
+          item.brand === spool.brand
+          && item.material === spool.material
+          && (item.color_name || '') === (spool.color_name || ''),
+      ),
+      updated_at: spool.updated_at,
+    });
+  }
+
   return [...map.values()]
+    .map((g) => {
+      const stock = stockByKey.get(`${g.brand}|${g.material}|${g.color_name || ''}`);
+      return {
+        ...g,
+        key: filamentKey(g),
+        spool_count: g.spools.length,
+        total_remaining_g: stock?.total_remaining_g ?? 0,
+        total_capacity_g: g.spools.reduce((sum, s) => sum + (s.initial_weight_g || 1000), 0),
+        low_stock_threshold_g: stock?.low_stock_threshold_g ?? 100,
+        no_stock: (stock?.active_spool_count ?? 0) === 0 && g.spools.length > 0,
+      };
+    })
     .map((g) => ({
       ...g,
-      key: filamentKey(g),
-      spool_count: g.spools.length,
-      total_remaining_g: g.spools.reduce((sum, s) => sum + (s.remaining_g || 0), 0),
-      total_capacity_g: g.spools.reduce((sum, s) => sum + (s.initial_weight_g || 1000), 0),
-      low_stock_threshold_g: g.spools[0]?.low_stock_threshold_g ?? 100,
-    }))
-    .map((g) => ({
-      ...g,
-      has_low_stock: g.total_remaining_g <= g.low_stock_threshold_g,
+      has_low_stock: g.no_stock || g.total_remaining_g <= g.low_stock_threshold_g,
     }))
     .sort((a, b) => {
       const nameA = (a.color_name || a.material).toLowerCase();
