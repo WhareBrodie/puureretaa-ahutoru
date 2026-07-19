@@ -157,8 +157,6 @@ def sync_slot_for_tray(conn, printer_id: int, slot: int, tray: dict[str, Any]) -
 
     tag_uid = _norm(tray.get("tag_uid")) or None
     tray_info_idx = _norm(tray.get("tray_info_idx")) or None
-    if not tag_uid and not tray_info_idx:
-        return None
 
     mapping = conn.execute(
         "SELECT spool_id FROM ams_slot_mappings WHERE printer_id = ? AND slot = ?",
@@ -182,6 +180,9 @@ def sync_slot_for_tray(conn, printer_id: int, slot: int, tray: dict[str, Any]) -
                 (spool_id, printer_id, slot),
             )
         return spool_id
+
+    if not tag_uid and not tray_info_idx:
+        return None
 
     if mapping and mapping["spool_id"]:
         teach_from_spool(conn, int(mapping["spool_id"]), tray)

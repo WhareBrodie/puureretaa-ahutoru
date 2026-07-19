@@ -189,6 +189,8 @@ def store_live_state(printer_state: dict[str, Any], trays: dict[str, Any]) -> No
 
     with connect() as conn:
         set_sync_state(conn, "live_printer_state", json.dumps(printer_state))
-        set_sync_state(conn, "live_ams_state", json.dumps(trays))
-        for slot_str, tray in trays.items():
-            update_mqtt_tray_state(1, int(slot_str), tray)
+        # Most MQTT messages are print-only and omit AMS; don't wipe tray state on those.
+        if trays:
+            set_sync_state(conn, "live_ams_state", json.dumps(trays))
+            for slot_str, tray in trays.items():
+                update_mqtt_tray_state(1, int(slot_str), tray)
