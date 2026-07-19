@@ -1,6 +1,6 @@
 # Pūreretā Ahutoru — Agent Guide
 
-Filament inventory and print tracking for a Bambu Lab P1S with full AMS, inspired by SpoolStock but with hybrid Bambu auto-sync (LAN MQTT + cloud API + FTPS gcode fallback).
+Filament inventory and print tracking for a Bambu Lab P1S with full AMS, inspired by SpoolStock but with cloud-first Bambu auto-sync (cloud API + cloud MQTT, optional local MQTT/FTPS fallback).
 
 ## Stack & deployment
 
@@ -9,7 +9,7 @@ Filament inventory and print tracking for a Bambu Lab P1S with full AMS, inspire
 | Frontend | Vite + React + react-router-dom |
 | Backend | Python 3.12 (`server/purereta_server.py`) — static SPA + `/api/*` |
 | Database | SQLite at `data/purereta.db` on server volume |
-| Bambu sync | Background worker (`server/bambu/sync_worker.py`) — MQTT, cloud poll, FTPS |
+| Bambu sync | Background worker (`server/bambu/sync_worker.py`) — cloud API poll, cloud/local MQTT, optional FTPS |
 | Runtime | Python Alpine behind Traefik on home network |
 | Delivery | Private GitHub repo → GitOps → Portainer auto-deploy |
 
@@ -36,13 +36,30 @@ Deploy host admin creates `/c/containers/vibes/purereta-ahutoru/data` once befor
 
 ## Bambu integration
 
-Hybrid sync (recommended setup):
+**Do not enable LAN Only Mode** on the printer unless you intentionally want to leave the Bambu cloud account. LAN Only disconnects the printer from your account (Handy, cloud history, etc.) and is not required for this app.
 
-1. **LAN MQTT** (`BAMBU_PRINTER_IP`, `BAMBU_SERIAL`, `BAMBU_LAN_ACCESS_CODE`) — live printer/AMS state, print finish events
-2. **Cloud API** (`BAMBU_CLOUD_EMAIL` + `BAMBU_CLOUD_PASSWORD`, or `BAMBU_CLOUD_ACCESS_TOKEN`) — historical tasks with slicer `used_g` / `used_m`
-3. **FTPS fallback** — gcode/3mf download when cloud lacks per-filament weights (SD/local prints)
+Cloud-first sync (recommended setup):
 
-**Printer prerequisites:** LAN Mode ON; Developer Mode ON for full protocol.
+1. **Cloud API** (`BAMBU_CLOUD_EMAIL` + `BAMBU_CLOUD_PASSWORD`, or `BAMBU_CLOUD_ACCESS_TOKEN`) — primary print import with slicer `used_g` / `used_m`; auto-discovers bound printer serial and access code
+2. **Cloud MQTT** (same cloud credentials + serial) — live printer/AMS state via `us.mqtt.bambulab.com` (override with `BAMBU_MQTT_BROKER` for CN accounts)
+3. **Optional local MQTT/FTPS** (`BAMBU_PRINTER_IP`, optionally `BAMBU_LAN_ACCESS_CODE`) — lower-latency live state and gcode fallback for SD/local prints; works while the printer stays cloud-connected
+
+Print completion is imported primarily by **cloud task polling** (`SYNC_CLOUD_INTERVAL_S`, default 300s). MQTT finish events can import sooner when cloud task data is already available.
+
+### Known limitations (read before relying on auto-sync)
+
+| Issue | Impact |
+|-------|--------|
+| **2FA on Bambu account** | Email/password login may fail; use a long-lived `BAMBU_CLOUD_ACCESS_TOKEN` from Bambu Studio or browser session |
+| **Token expiry** | Access tokens expire; refresh in Portainer when sync stops with 401 errors |
+| **Cloud task detail 403** | Some jobs return only total weight, not per-filament breakdown → review queue or manual assignment |
+| **SD / non-cloud-sliced prints** | Often lack cloud filament metadata; needs FTPS fallback (printer IP reachable from deploy host) or manual log |
+| **Cloud MQTT reliability** | Bambu has changed cloud MQTT auth before; reconnect loop retries every 30s |
+| **Polling delay** | Default 5-minute cloud poll — not instant unless MQTT + matching cloud task align |
+| **Multiple printers** | Set `BAMBU_CLOUD_DEVICE_ID` or `BAMBU_SERIAL` when more than one device is bound |
+| **Deploy host networking** | Container must reach `api.bambulab.com` and `us.mqtt.bambulab.com`; optional FTPS needs route to printer LAN IP |
+
+Developer Mode on the printer is **not** required for cloud sync.
 
 ### Non-Bambu filament
 
@@ -58,13 +75,15 @@ Hybrid sync (recommended setup):
 | `PUBLIC_URL` | `http://xn--preret-ahutoru-qub40o.internal` | Only if hostname changes |
 | `DEFAULT_LOW_STOCK_THRESHOLD_G` | `100` | Optional |
 | `SYNC_CLOUD_INTERVAL_S` | `300` | Optional |
-| `BAMBU_PRINTER_IP` | empty | Yes |
-| `BAMBU_SERIAL` | empty | Yes |
-| `BAMBU_LAN_ACCESS_CODE` | — | **Yes (secret)** |
 | `BAMBU_CLOUD_EMAIL` | — | **Yes (secret)** |
 | `BAMBU_CLOUD_PASSWORD` | — | **Yes (secret)** |
-| `BAMBU_CLOUD_ACCESS_TOKEN` | — | **Yes (secret, alternative to email/password)** |
-| `BAMBU_CLOUD_DEVICE_ID` | — | Optional filter for cloud tasks |
+| `BAMBU_CLOUD_ACCESS_TOKEN` | — | **Yes (secret, preferred with 2FA)** |
+| `BAMBU_CLOUD_DEVICE_ID` | empty | Optional filter when multiple printers bound |
+| `BAMBU_SERIAL` | empty | Optional; auto-discovered from cloud bind API |
+| `BAMBU_MQTT_BROKER` | `us.mqtt.bambulab.com` | Optional (`cn.mqtt.bambulab.com` for CN accounts) |
+| `BAMBU_MQTT_MODE` | `auto` | Optional: `auto`, `cloud`, or `local` |
+| `BAMBU_PRINTER_IP` | empty | Optional — local MQTT/FTPS fallback |
+| `BAMBU_LAN_ACCESS_CODE` | — | Optional secret — auto-fetched from bind API if omitted |
 
 Never commit secrets. Document only in this file and `.env.example` placeholders.
 

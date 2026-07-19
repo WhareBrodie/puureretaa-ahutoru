@@ -6,7 +6,42 @@ import json
 import os
 from typing import Any
 
+from bambu.mqtt_client import BambuMqttClient
 from db import connect, get_setting, row_to_dict, rows_to_dicts, set_setting
+
+
+def _cloud_credentials_configured() -> bool:
+    return bool(
+        os.environ.get("BAMBU_CLOUD_ACCESS_TOKEN")
+        or (os.environ.get("BAMBU_CLOUD_EMAIL") and os.environ.get("BAMBU_CLOUD_PASSWORD"))
+    )
+
+
+def _mqtt_configured() -> bool:
+    if _cloud_credentials_configured():
+        return True
+    cfg = BambuMqttClient.config()
+    return bool(cfg["ip"] and cfg["serial"] and cfg["access_code"])
+
+
+def _mqtt_mode() -> str | None:
+    mode_env = os.environ.get("BAMBU_MQTT_MODE", "auto").lower()
+    cfg = BambuMqttClient.config()
+    cloud_ready = _cloud_credentials_configured()
+    local_ready = bool(
+        cfg["ip"]
+        and (cfg["serial"] or os.environ.get("BAMBU_CLOUD_DEVICE_ID"))
+        and (cfg["access_code"] or cloud_ready)
+    )
+    if mode_env == "local":
+        return "local" if local_ready else None
+    if mode_env == "cloud":
+        return "cloud" if cloud_ready else None
+    if cloud_ready:
+        return "cloud"
+    if local_ready:
+        return "local"
+    return None
 
 
 def get_settings() -> dict[str, Any]:
@@ -23,11 +58,18 @@ def get_settings() -> dict[str, Any]:
             ),
             "drying_alert_days": int(get_setting(conn, "drying_alert_days", "30") or 30),
             "printer": row_to_dict(printer) if printer else None,
-            "bambu_configured": bool(os.environ.get("BAMBU_LAN_ACCESS_CODE")),
-            "bambu_cloud_configured": bool(
-                os.environ.get("BAMBU_CLOUD_ACCESS_TOKEN")
-                or (os.environ.get("BAMBU_CLOUD_EMAIL") and os.environ.get("BAMBU_CLOUD_PASSWORD"))
+            "bambu_cloud_configured": _cloud_credentials_configured(),
+            "bambu_mqtt_configured": _mqtt_configured(),
+            "bambu_mqtt_mode": _mqtt_mode(),
+            "bambu_ftps_configured": bool(
+                os.environ.get("BAMBU_PRINTER_IP")
+                and (
+                    os.environ.get("BAMBU_LAN_ACCESS_CODE")
+                    or _cloud_credentials_configured()
+                )
             ),
+            # Back-compat for older UI checks
+            "bambu_configured": _mqtt_configured(),
             "env": {
                 "printer_ip": os.environ.get("BAMBU_PRINTER_IP", ""),
                 "serial": os.environ.get("BAMBU_SERIAL", ""),

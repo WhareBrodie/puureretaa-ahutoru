@@ -1,4 +1,4 @@
-"""Bambu cloud API client for print task history."""
+"""Bambu cloud API client for print task history and device discovery."""
 
 from __future__ import annotations
 
@@ -11,12 +11,15 @@ import requests
 logger = logging.getLogger("bambu.cloud")
 
 API_BASE = "https://api.bambulab.com"
+DEFAULT_MQTT_BROKER = "us.mqtt.bambulab.com"
 
 
 class BambuCloudClient:
     def __init__(self) -> None:
         self._token: str | None = os.environ.get("BAMBU_CLOUD_ACCESS_TOKEN")
         self._session = requests.Session()
+        self._user_id: int | None = None
+        self._devices: list[dict[str, Any]] | None = None
 
     def is_configured(self) -> bool:
         return bool(
@@ -39,6 +42,11 @@ class BambuCloudClient:
             )
             resp.raise_for_status()
             data = resp.json()
+            if data.get("loginType") == "verifyCode":
+                logger.error(
+                    "Bambu cloud login requires 2FA verification; set BAMBU_CLOUD_ACCESS_TOKEN in Portainer instead"
+                )
+                return None
             self._token = data.get("accessToken") or data.get("access_token")
             return self._token
         except Exception:
@@ -51,11 +59,102 @@ class BambuCloudClient:
             return {}
         return {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
 
+    def get_user_id(self) -> int | None:
+        if self._user_id is not None:
+            return self._user_id
+        if not self.is_configured():
+            return None
+        try:
+            resp = self._session.get(
+                f"{API_BASE}/v1/design-user-service/my/preference",
+                headers=self._headers(),
+                timeout=30,
+            )
+            if resp.status_code == 401:
+                self._token = None
+                resp = self._session.get(
+                    f"{API_BASE}/v1/design-user-service/my/preference",
+                    headers=self._headers(),
+                    timeout=30,
+                )
+            resp.raise_for_status()
+            uid = resp.json().get("uid")
+            if isinstance(uid, int):
+                self._user_id = uid
+            return self._user_id
+        except Exception:
+            logger.exception("Failed to fetch Bambu user id")
+            return None
+
+    def get_mqtt_broker(self) -> str:
+        return os.environ.get("BAMBU_MQTT_BROKER", DEFAULT_MQTT_BROKER).strip() or DEFAULT_MQTT_BROKER
+
+    def fetch_bound_devices(self, force: bool = False) -> list[dict[str, Any]]:
+        if self._devices is not None and not force:
+            return self._devices
+        if not self.is_configured():
+            return []
+        try:
+            resp = self._session.get(
+                f"{API_BASE}/v1/iot-service/api/user/bind",
+                headers=self._headers(),
+                timeout=30,
+            )
+            if resp.status_code == 401:
+                self._token = None
+                resp = self._session.get(
+                    f"{API_BASE}/v1/iot-service/api/user/bind",
+                    headers=self._headers(),
+                    timeout=30,
+                )
+            resp.raise_for_status()
+            data = resp.json()
+            devices = data.get("devices") or []
+            self._devices = devices if isinstance(devices, list) else []
+            return self._devices
+        except Exception:
+            logger.exception("Failed to fetch bound Bambu devices")
+            return []
+
+    def resolve_device(self) -> dict[str, Any] | None:
+        serial = os.environ.get("BAMBU_SERIAL", "").strip()
+        device_id = os.environ.get("BAMBU_CLOUD_DEVICE_ID", "").strip()
+        devices = self.fetch_bound_devices()
+        if not devices:
+            return None
+        if device_id:
+            for device in devices:
+                if str(device.get("dev_id") or "") == device_id:
+                    return device
+        if serial:
+            for device in devices:
+                if str(device.get("dev_id") or "") == serial:
+                    return device
+        if len(devices) == 1:
+            return devices[0]
+        return None
+
+    def resolve_serial(self) -> str:
+        serial = os.environ.get("BAMBU_SERIAL", "").strip()
+        if serial:
+            return serial
+        device = self.resolve_device()
+        return str(device.get("dev_id") or "").strip() if device else ""
+
+    def resolve_access_code(self) -> str:
+        code = os.environ.get("BAMBU_LAN_ACCESS_CODE", "").strip()
+        if code:
+            return code
+        device = self.resolve_device()
+        if not device:
+            return ""
+        return str(device.get("dev_access_code") or "").strip()
+
     def fetch_tasks(self, after: str | None = None, limit: int = 20) -> list[dict[str, Any]]:
         if not self.is_configured():
             return []
         params: dict[str, Any] = {"limit": limit}
-        device_id = os.environ.get("BAMBU_CLOUD_DEVICE_ID")
+        device_id = os.environ.get("BAMBU_CLOUD_DEVICE_ID") or os.environ.get("BAMBU_SERIAL")
         if device_id:
             params["deviceId"] = device_id
         if after:

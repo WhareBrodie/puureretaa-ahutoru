@@ -130,11 +130,17 @@ export default function SettingsPage() {
             />
           </label>
           <p className="muted">
-            Bambu LAN access code and cloud credentials are set in Portainer env vars:
-            BAMBU_LAN_ACCESS_CODE, BAMBU_CLOUD_EMAIL, BAMBU_CLOUD_PASSWORD (or BAMBU_CLOUD_ACCESS_TOKEN).
+            Bambu sync uses your normal cloud account — do <strong>not</strong> enable LAN Only Mode on the printer.
+            Set cloud credentials in Portainer: BAMBU_CLOUD_EMAIL + BAMBU_CLOUD_PASSWORD, or BAMBU_CLOUD_ACCESS_TOKEN
+            (recommended if you use 2FA). Optional: BAMBU_PRINTER_IP for faster local MQTT/FTPS fallback;
+            BAMBU_LAN_ACCESS_CODE can be omitted if cloud credentials can fetch it from your bound devices.
           </p>
           <div>
-            MQTT configured: {settings.bambu_configured ? 'Yes' : 'No'} · Cloud configured: {settings.bambu_cloud_configured ? 'Yes' : 'No'}
+            Cloud: {settings.bambu_cloud_configured ? 'Yes' : 'No'}
+            {' · '}
+            MQTT ({settings.bambu_mqtt_mode || 'none'}): {settings.bambu_mqtt_configured ? 'Yes' : 'No'}
+            {' · '}
+            FTPS fallback: {settings.bambu_ftps_configured ? 'Yes' : 'No'}
           </div>
           <button onClick={saveSettings}>Save settings</button>
         </div>

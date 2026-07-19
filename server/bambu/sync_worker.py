@@ -1,8 +1,7 @@
-"""Background Bambu sync worker (MQTT + cloud polling)."""
+"""Background Bambu sync worker (cloud API + cloud/local MQTT + optional FTPS)."""
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import sys
@@ -26,12 +25,13 @@ logger = logging.getLogger("bambu.sync_worker")
 
 class SyncWorker:
     def __init__(self) -> None:
+        self.cloud = BambuCloudClient()
         self.mqtt = BambuMqttClient(
+            cloud_client=self.cloud,
             on_print_complete=self.on_print_complete,
             on_state_update=self.on_state_update,
         )
-        self.cloud = BambuCloudClient()
-        self.ftps = BambuFtpsClient()
+        self.ftps = BambuFtpsClient(cloud_client=self.cloud)
         self.cloud_interval = int(os.environ.get("SYNC_CLOUD_INTERVAL_S", "300"))
 
     def on_state_update(self, printer_state: dict, trays: dict) -> None:
@@ -39,9 +39,12 @@ class SyncWorker:
 
     def on_print_complete(self, event: dict) -> None:
         logger.info("Print complete event: %s", event.get("gcode_file"))
+        if not self.cloud.is_configured():
+            logger.warning("Print finished on MQTT but cloud credentials are not configured; skipping auto-import")
+            return
+
         usages: list[dict] = []
         source = "mqtt"
-
         task = self._find_matching_cloud_task(event)
         if task:
             usages = self.cloud.extract_filament_usages(task)
@@ -50,15 +53,23 @@ class SyncWorker:
         else:
             bambu_task_id = None
 
-        if not usages and event.get("gcode_file"):
+        if not usages and event.get("gcode_file") and self.ftps.is_configured():
             gcode = self.ftps.resolve_gcode_content(event["gcode_file"])
             if gcode:
                 usages = parse_filament_usage(gcode, float(event.get("completion_percent") or 100))
                 source = "ftps"
 
         if not usages:
-            usages = [{"ams_slot": 1, "material": "UNKNOWN", "color": None, "used_g": 0}]
-            source = "mqtt"
+            logger.info("No filament usage data yet for %s; cloud poll will retry", event.get("gcode_file"))
+            return
+
+        if bambu_task_id:
+            with connect() as conn:
+                existing = conn.execute(
+                    "SELECT id FROM print_jobs WHERE bambu_task_id = ?", (bambu_task_id,)
+                ).fetchone()
+            if existing:
+                return
 
         process_print_job(
             title=event.get("subtask_name") or event.get("gcode_file"),
@@ -78,8 +89,9 @@ class SyncWorker:
         filename = (event.get("gcode_file") or "").lower()
         for task in tasks:
             title = (task.get("title") or "").lower()
+            task_id = str(task.get("id") or task.get("taskId") or "")
             if filename and filename in title:
-                detail = self.cloud.fetch_task_detail(str(task.get("id") or task.get("taskId") or ""))
+                detail = self.cloud.fetch_task_detail(task_id)
                 return detail or task
         return tasks[0] if tasks else None
 
@@ -127,6 +139,15 @@ class SyncWorker:
 
     def run(self) -> None:
         init_db()
+        mode = self.mqtt.connection_mode()
+        if self.cloud.is_configured():
+            serial = self.cloud.resolve_serial()
+            logger.info(
+                "Bambu cloud configured; serial=%s mqtt_mode=%s cloud_poll=%ss",
+                serial or "(unknown)",
+                mode or "none",
+                self.cloud_interval,
+            )
         self.mqtt.start()
         logger.info("Sync worker started")
         while True:
