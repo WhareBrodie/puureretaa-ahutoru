@@ -16,7 +16,7 @@ services:
       - proxy
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.purereta.rule=Host(`xn--preret-ahutoru-qub40o.internal`) || Host(`pūreretā-ahutoru.internal`)"
+      - "traefik.http.routers.purereta.rule=Host(`xn--preret-ahutoru-qub40o.internal`)"
       - "traefik.http.routers.purereta.entrypoints=web"
       - "traefik.http.routers.purereta.service=purereta"
       - "traefik.http.services.purereta.loadbalancer.server.port=80"
