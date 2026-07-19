@@ -130,10 +130,10 @@ export default function SettingsPage() {
             />
           </label>
           <p className="muted">
-            Bambu sync uses your normal cloud account — do <strong>not</strong> enable LAN Only Mode on the printer.
-            Set cloud credentials in Portainer: BAMBU_CLOUD_EMAIL + BAMBU_CLOUD_PASSWORD, or BAMBU_CLOUD_ACCESS_TOKEN
-            (recommended if you use 2FA). Optional: BAMBU_PRINTER_IP for faster local MQTT/FTPS fallback;
-            BAMBU_LAN_ACCESS_CODE can be omitted if cloud credentials can fetch it from your bound devices.
+            Do <strong>not</strong> enable LAN Only Mode. Print auto-import needs cloud credentials in Portainer.
+            Easiest: log in to makerworld.com → DevTools → Application/Storage → Cookies → <code>token</code> → copy value
+            into <code>BAMBU_CLOUD_ACCESS_TOKEN</code>. Or set <code>BAMBU_CLOUD_EMAIL</code> + <code>BAMBU_CLOUD_PASSWORD</code>
+            if you don&apos;t use 2FA. Your LAN vars (IP, serial, access code) add live AMS + FTPS fallback only.
           </p>
           <div>
             Cloud: {settings.bambu_cloud_configured ? 'Yes' : 'No'}
