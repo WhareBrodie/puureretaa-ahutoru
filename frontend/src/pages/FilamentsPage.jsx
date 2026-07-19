@@ -3,7 +3,6 @@ import { Link } from 'react-router-dom';
 import { api, colorStyle, photoUrl } from '../api';
 import SpoolFormModal from '../components/SpoolFormModal';
 import SpoolRing from '../components/SpoolRing';
-import Stars from '../components/Stars';
 import { formatWeight, groupSpoolsIntoFilaments } from '../utils/filaments';
 
 export default function FilamentsPage() {
@@ -86,7 +85,6 @@ export default function FilamentsPage() {
               <th>Brand</th>
               <th>Material</th>
               <th>Spools</th>
-              <th>Rating</th>
               <th aria-label="Alerts" />
             </tr>
           </thead>
@@ -134,7 +132,6 @@ export default function FilamentsPage() {
                       <div className="mini-bar-fill" style={{ width: `${Math.round(pct * 100)}%`, ...colorStyle(filament.color_hex) }} />
                     </div>
                   </td>
-                  <td><Stars rating={filament.rating} /></td>
                   <td>{filament.has_low_stock && <span className="alert-icon" title="Low stock">⚠</span>}</td>
                 </tr>
               );

@@ -26,7 +26,6 @@ export function groupSpoolsIntoFilaments(spools, { includeDepleted = false } = {
         color_name: spool.color_name,
         color_hex: spool.color_hex,
         photo_path: spool.photo_path,
-        rating: spool.rating,
         spools: [],
         updated_at: spool.updated_at,
       });
@@ -35,9 +34,6 @@ export function groupSpoolsIntoFilaments(spools, { includeDepleted = false } = {
     group.spools.push(spool);
     if (spool.updated_at > group.updated_at) group.updated_at = spool.updated_at;
     if (spool.photo_path) group.photo_path = spool.photo_path;
-    if (spool.rating != null && (group.rating == null || spool.rating > group.rating)) {
-      group.rating = spool.rating;
-    }
     if (spool.color_hex && !group.color_hex) group.color_hex = spool.color_hex;
   }
 
@@ -48,9 +44,11 @@ export function groupSpoolsIntoFilaments(spools, { includeDepleted = false } = {
       spool_count: g.spools.length,
       total_remaining_g: g.spools.reduce((sum, s) => sum + (s.remaining_g || 0), 0),
       total_capacity_g: g.spools.reduce((sum, s) => sum + (s.initial_weight_g || 1000), 0),
-      has_low_stock: g.spools.some(
-        (s) => (s.remaining_g || 0) <= (s.low_stock_threshold_g || 100),
-      ),
+      low_stock_threshold_g: g.spools[0]?.low_stock_threshold_g ?? 100,
+    }))
+    .map((g) => ({
+      ...g,
+      has_low_stock: g.total_remaining_g <= g.low_stock_threshold_g,
     }))
     .sort((a, b) => {
       const nameA = (a.color_name || a.material).toLowerCase();
@@ -63,6 +61,17 @@ export function formatWeight(g) {
   if (g == null || Number.isNaN(g)) return '—';
   if (g >= 1000) return `${(g / 1000).toFixed(2)} kg`;
   return `${Math.round(g)} g`;
+}
+
+/** Cost of used_g based on spool purchase price and initial weight. */
+export function usageCost(usedG, purchasePrice, initialWeightG) {
+  if (purchasePrice == null || !initialWeightG || initialWeightG <= 0 || !usedG) return null;
+  return (usedG * purchasePrice) / initialWeightG;
+}
+
+export function formatMoney(amount) {
+  if (amount == null || Number.isNaN(amount)) return '—';
+  return `$${amount.toFixed(2)}`;
 }
 
 export function groupSpoolsByLocation(spools, locations) {

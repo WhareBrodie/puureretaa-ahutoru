@@ -18,12 +18,34 @@ def _print_query(where: str = "", params: tuple[Any, ...] = ()) -> str:
     """
 
 
+def _usage_cost(used_g: float | None, purchase_price: float | None, initial_weight_g: float | None) -> float | None:
+    if purchase_price is None or not initial_weight_g or initial_weight_g <= 0 or not used_g:
+        return None
+    return round(used_g * (purchase_price / initial_weight_g), 2)
+
+
 def _attach_usages(conn, print_job: dict[str, Any]) -> dict[str, Any]:
     usages = conn.execute(
-        "SELECT * FROM print_usages WHERE print_job_id = ? ORDER BY ams_slot",
+        """
+        SELECT pu.*, s.purchase_price, s.initial_weight_g, s.brand, s.color_name
+        FROM print_usages pu
+        LEFT JOIN spools s ON s.id = pu.spool_id
+        WHERE pu.print_job_id = ?
+        ORDER BY pu.ams_slot
+        """,
         (print_job["id"],),
     ).fetchall()
-    print_job["usages"] = rows_to_dicts(usages)
+    usage_dicts = rows_to_dicts(usages)
+    total_cost = 0.0
+    has_cost = False
+    for usage in usage_dicts:
+        cost = _usage_cost(usage.get("used_g"), usage.get("purchase_price"), usage.get("initial_weight_g"))
+        usage["cost"] = cost
+        if cost is not None:
+            total_cost += cost
+            has_cost = True
+    print_job["usages"] = usage_dicts
+    print_job["total_cost"] = round(total_cost, 2) if has_cost else None
     return print_job
 
 

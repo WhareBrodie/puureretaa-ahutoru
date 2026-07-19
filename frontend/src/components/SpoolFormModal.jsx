@@ -10,7 +10,6 @@ const emptyForm = {
   purchase_date: '',
   supplier: '',
   batch_number: '',
-  rating: 0,
   location_id: '',
   remaining_g: 1000,
   initial_weight_g: 1000,
@@ -40,7 +39,7 @@ export default function SpoolFormModal({ locations, spool, onClose, onSaved }) {
       const payload = {
         ...form,
         purchase_price: form.purchase_price ? Number(form.purchase_price) : null,
-        rating: form.rating ? Number(form.rating) : null,
+        purchase_date: form.purchase_date || null,
         location_id: form.location_id ? Number(form.location_id) : null,
         remaining_g: Number(form.remaining_g),
         initial_weight_g: Number(form.initial_weight_g),
@@ -61,7 +60,7 @@ export default function SpoolFormModal({ locations, spool, onClose, onSaved }) {
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <form className="card modal form-grid" onClick={(e) => e.stopPropagation()} onSubmit={submit}>
-        <h2>{spool ? 'Edit spool' : 'Add spool'}</h2>
+        <h2>{spool?.id ? 'Edit spool' : 'Add spool'}</h2>
         {error && <div className="danger">{error}</div>}
         <div className="form-grid two">
           <label>Brand<input value={form.brand} onChange={(e) => update('brand', e.target.value)} required /></label>
@@ -84,9 +83,8 @@ export default function SpoolFormModal({ locations, spool, onClose, onSaved }) {
               <option key={entry.id} value={entry.weight_g}>{entry.brand} {entry.model}</option>
             ))}
           </datalist>
-          <label>Rating<select value={form.rating || 0} onChange={(e) => update('rating', e.target.value)}>
-            {[0, 1, 2, 3, 4, 5].map((value) => <option key={value} value={value}>{value || 'Unrated'}</option>)}
-          </select></label>
+          <label>Purchase price ($)<input type="number" step="0.01" min="0" value={form.purchase_price} onChange={(e) => update('purchase_price', e.target.value)} placeholder="e.g. 24.99" /></label>
+          <label>Purchase date<input type="date" value={form.purchase_date || ''} onChange={(e) => update('purchase_date', e.target.value)} /></label>
           <label>Location<select value={form.location_id || ''} onChange={(e) => update('location_id', e.target.value)}>
             <option value="">None</option>
             {locations.map((location) => <option key={location.id} value={location.id}>{location.name}</option>)}

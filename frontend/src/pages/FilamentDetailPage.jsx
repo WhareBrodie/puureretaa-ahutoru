@@ -3,14 +3,14 @@ import { Link, useParams } from 'react-router-dom';
 import { api, colorStyle, formatDate, photoUrl } from '../api';
 import SpoolFormModal from '../components/SpoolFormModal';
 import SpoolRing from '../components/SpoolRing';
-import Stars from '../components/Stars';
-import { formatWeight, parseFilamentKey } from '../utils/filaments';
+import { formatMoney, formatWeight, parseFilamentKey } from '../utils/filaments';
 
 export default function FilamentDetailPage() {
   const { key } = useParams();
   const [spools, setSpools] = useState([]);
   const [locations, setLocations] = useState([]);
   const [showForm, setShowForm] = useState(false);
+  const [editSpool, setEditSpool] = useState(null);
   const [error, setError] = useState('');
 
   const filament = useMemo(() => parseFilamentKey(key), [key]);
@@ -46,7 +46,6 @@ export default function FilamentDetailPage() {
   const pct = totalCapacity ? Math.round((totalRemaining / totalCapacity) * 100) : 0;
   const sample = matchingSpools[0];
   const photo = sample ? photoUrl(sample) : null;
-  const rating = matchingSpools.reduce((best, s) => Math.max(best, s.rating || 0), 0) || null;
   const displayName = filament.color_name || `${filament.brand} ${filament.material}`;
 
   const defaultForm = sample
@@ -73,7 +72,6 @@ export default function FilamentDetailPage() {
         <div className="filament-hero-top">
           <div className="filament-hero-brand">
             <strong>{filament.brand}</strong>
-            <Stars rating={rating} />
           </div>
           <span className="badge material">{filament.material}</span>
         </div>
@@ -122,43 +120,50 @@ export default function FilamentDetailPage() {
           <p className="muted">No spools for this filament yet.</p>
         ) : (
           <div className="spool-list">
-            {matchingSpools.map((spool) => {
-              const low = (spool.remaining_g || 0) <= (spool.low_stock_threshold_g || 100);
-              return (
-                <Link key={spool.id} to={`/spools/${spool.id}`} className="card spool-list-item">
-                  <SpoolRing
-                    remaining={spool.remaining_g || 0}
-                    capacity={spool.initial_weight_g || 1000}
-                    colorHex={spool.color_hex}
-                  />
-                  <div className="spool-list-weight">
-                    <strong>{formatWeight(spool.remaining_g)}</strong>
-                    <span className="muted"> / {formatWeight(spool.initial_weight_g || 1000)}</span>
-                  </div>
-                  <div className="spool-list-meta">
-                    {spool.location_name && (
-                      <span className="badge location">📍 {spool.location_name}</span>
-                    )}
-                    {spool.qr_code_id && <span className="muted spool-id">{spool.qr_code_id.slice(0, 8)}</span>}
-                    {low && <span className="badge warning">Low</span>}
-                  </div>
-                  <div className="muted spool-list-date">
-                    {spool.updated_at ? `Updated ${formatDate(spool.updated_at)}` : ''}
-                  </div>
-                </Link>
-              );
-            })}
+            {matchingSpools.map((spool) => (
+                <div key={spool.id} className="card spool-list-item spool-list-item-row">
+                  <Link to={`/spools/${spool.id}`} className="spool-list-link">
+                    <SpoolRing
+                      remaining={spool.remaining_g || 0}
+                      capacity={spool.initial_weight_g || 1000}
+                      colorHex={spool.color_hex}
+                    />
+                    <div className="spool-list-weight">
+                      <strong>{formatWeight(spool.remaining_g)}</strong>
+                      <span className="muted"> / {formatWeight(spool.initial_weight_g || 1000)}</span>
+                    </div>
+                    <div className="spool-list-meta">
+                      {spool.location_name && (
+                        <span className="badge location">📍 {spool.location_name}</span>
+                      )}
+                      {spool.qr_code_id && <span className="muted spool-id">{spool.qr_code_id.slice(0, 8)}</span>}
+                    </div>
+                    <div className="muted spool-list-date">
+                      {spool.purchase_price != null && <span>{formatMoney(spool.purchase_price)}</span>}
+                      {spool.purchase_date && <span>{spool.purchase_price != null ? ' · ' : ''}{spool.purchase_date}</span>}
+                      {!spool.purchase_price && !spool.purchase_date && spool.updated_at && (
+                        <span>Updated {formatDate(spool.updated_at)}</span>
+                      )}
+                    </div>
+                  </Link>
+                  <button type="button" className="secondary spool-edit-btn" onClick={() => setEditSpool(spool)}>Edit</button>
+                </div>
+              ))}
           </div>
         )}
       </div>
 
-      {showForm && (
+      {(showForm || editSpool) && (
         <SpoolFormModal
           locations={locations}
-          spool={defaultForm}
-          onClose={() => setShowForm(false)}
+          spool={editSpool || defaultForm}
+          onClose={() => {
+            setShowForm(false);
+            setEditSpool(null);
+          }}
           onSaved={() => {
             setShowForm(false);
+            setEditSpool(null);
             load();
           }}
         />

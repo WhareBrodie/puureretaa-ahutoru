@@ -63,7 +63,16 @@ def get_spool(spool_id: int) -> dict[str, Any]:
             """,
             (spool_id,),
         ).fetchall()
-        spool["usage_history"] = rows_to_dicts(usages)
+        usage_rows = rows_to_dicts(usages)
+        price = spool.get("purchase_price")
+        initial = spool.get("initial_weight_g")
+        for usage in usage_rows:
+            used = usage.get("used_g")
+            if price is not None and initial and initial > 0 and used:
+                usage["cost"] = round(used * (price / initial), 2)
+            else:
+                usage["cost"] = None
+        spool["usage_history"] = usage_rows
         return spool
 
 

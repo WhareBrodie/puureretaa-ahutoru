@@ -144,19 +144,23 @@ def get_stats() -> dict[str, Any]:
     }
 
 
-def get_reorder_suggestions(min_rating: int = 4) -> list[dict[str, Any]]:
+def get_reorder_suggestions() -> list[dict[str, Any]]:
+    """Low-stock spools worth reordering (deduped by brand/material/color)."""
+    seen: set[str] = set()
     suggestions = []
     for spool in list_spools(low_stock_only=True):
-        if (spool.get("rating") or 0) >= min_rating:
-            suggestions.append(
-                {
-                    "spool_id": spool["id"],
-                    "brand": spool["brand"],
-                    "material": spool["material"],
-                    "color_name": spool["color_name"],
-                    "color_hex": spool["color_hex"],
-                    "rating": spool["rating"],
-                    "remaining_g": spool["remaining_g"],
-                }
-            )
+        key = f"{spool.get('brand')}|{spool.get('material')}|{spool.get('color_name') or ''}"
+        if key in seen:
+            continue
+        seen.add(key)
+        suggestions.append(
+            {
+                "spool_id": spool["id"],
+                "brand": spool["brand"],
+                "material": spool["material"],
+                "color_name": spool["color_name"],
+                "color_hex": spool["color_hex"],
+                "remaining_g": spool["remaining_g"],
+            }
+        )
     return suggestions

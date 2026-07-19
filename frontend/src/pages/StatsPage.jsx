@@ -40,7 +40,7 @@ export default function StatsPage() {
       <div className="page-header">
         <div>
           <h1>Stats</h1>
-          <p>Usage summaries and reorder suggestions</p>
+          <p>Usage summaries and low-stock alerts</p>
         </div>
       </div>
 
@@ -65,17 +65,17 @@ export default function StatsPage() {
           <BarChart rows={stats.monthly_usage || []} labelKey="month" valueKey="total_g" />
         </div>
         <div className="card">
-          <h2>Reorder suggestions</h2>
+          <h2>Low stock</h2>
           {alerts?.reorder?.length ? (
             <ul>
               {alerts.reorder.map((item) => (
                 <li key={item.spool_id}>
-                  ★{item.rating} {item.brand} {item.material} {item.color_name} — {Math.round(item.remaining_g || 0)}g left
+                  {item.brand} {item.material} {item.color_name} — {Math.round(item.remaining_g || 0)}g left
                 </li>
               ))}
             </ul>
           ) : (
-            <p className="muted">No highly rated spools are low yet.</p>
+            <p className="muted">No spools are low yet.</p>
           )}
         </div>
       </div>

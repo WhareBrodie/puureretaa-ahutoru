@@ -131,7 +131,7 @@ frontend/                 Vite + React SPA
     FilamentsPage.jsx     One row per filament (brand+material+color); drill-down
     FilamentDetailPage.jsx  Aggregated view + individual spools for a filament
     InventoryPage.jsx     Spools grouped by storage location
-    SpoolDetailPage.jsx   Single spool: photo, scale, drying, usage history
+    SpoolDetailPage.jsx   Single spool: photo, purchase cost, scale, drying, usage history
 server/
   purereta_server.py      Static files + /api/*
   db.py                   SQLite + migrations
