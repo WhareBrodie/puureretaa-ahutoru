@@ -46,7 +46,7 @@ export default function AmsPage() {
       <div className="page-header">
         <div>
           <h1>AMS setup</h1>
-          <p>Map AMS slots 1–4 to inventory spools; Bambu RFID tags auto-link when detected</p>
+          <p>Map AMS slots 1–4 to inventory spools; Bambu RFID tags auto-link when detected. Live tray data needs local MQTT (printer IP + access code in Portainer).</p>
         </div>
       </div>
 

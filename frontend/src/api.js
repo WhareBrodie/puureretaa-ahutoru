@@ -35,6 +35,11 @@ export const api = {
   settings: {
     get: () => request('/settings'),
     update: (body) => request('/settings', { method: 'PUT', body: JSON.stringify(body) }),
+    skipCloudHistory: (deleteImported = false) =>
+      request('/settings/skip-cloud-history', {
+        method: 'POST',
+        body: JSON.stringify({ delete_imported: deleteImported }),
+      }),
   },
   locations: {
     list: () => request('/locations'),

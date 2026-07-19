@@ -229,6 +229,14 @@ class PureretaHandler(SimpleHTTPRequestHandler):
                 self.end_json(201, projects.create_project(self.read_json_body()))
                 return
 
+            if parts == ["api", "settings", "skip-cloud-history"]:
+                body = self.read_json_body() if self.headers.get("Content-Length") else {}
+                self.end_json(
+                    200,
+                    settings.skip_cloud_history(bool(body.get("delete_imported"))),
+                )
+                return
+
             if len(parts) == 4 and parts[0] == "api" and parts[1] == "prints" and parts[3] == "review":
                 self.end_json(200, prints.resolve_print_review_v2(int(parts[2]), self.read_json_body()))
                 return

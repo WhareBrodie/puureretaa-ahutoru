@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import json
 import os
+from datetime import datetime, timezone
 from typing import Any
 
 from bambu.mqtt_client import BambuMqttClient
-from db import connect, get_setting, row_to_dict, rows_to_dicts, set_setting
+from db import connect, get_setting, row_to_dict, rows_to_dicts, set_setting, set_sync_state
 
 
 def _cloud_credentials_configured() -> bool:
@@ -37,10 +38,10 @@ def _mqtt_mode() -> str | None:
         return "local" if local_ready else None
     if mode_env == "cloud":
         return "cloud" if cloud_ready else None
-    if cloud_ready:
-        return "cloud"
     if local_ready:
         return "local"
+    if cloud_ready:
+        return "cloud"
     return None
 
 
@@ -113,3 +114,28 @@ def update_settings(data: dict[str, Any]) -> dict[str, Any]:
                 ),
             )
     return get_settings()
+
+
+def skip_cloud_history(delete_imported: bool = False) -> dict[str, Any]:
+    """Stop backfilling Bambu cloud print history; optionally remove auto-imported prints."""
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    deleted = 0
+    with connect() as conn:
+        set_sync_state(conn, "cloud_tasks_after", now)
+        if delete_imported:
+            conn.execute(
+                """
+                DELETE FROM print_usages
+                WHERE print_job_id IN (
+                    SELECT id FROM print_jobs WHERE source IN ('cloud', 'mqtt', 'ftps')
+                )
+                """
+            )
+            cur = conn.execute(
+                "DELETE FROM print_jobs WHERE source IN ('cloud', 'mqtt', 'ftps')"
+            )
+            deleted = cur.rowcount
+    result = get_settings()
+    result["cloud_sync_baseline"] = now
+    result["deleted_imported_prints"] = deleted
+    return result

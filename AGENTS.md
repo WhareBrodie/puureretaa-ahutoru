@@ -48,7 +48,11 @@ Cloud-first sync (recommended setup):
 
 Print completion is imported primarily by **cloud task polling** (`SYNC_CLOUD_INTERVAL_S`, default 300s). MQTT finish events can import sooner when cloud task data is already available.
 
+On first sync the worker may backfill recent Bambu cloud history. After a SpoolStock import, use **Settings → Sync new prints only** once to clear imported prints and set the sync cursor to now.
+
 **Minimum for print auto-import:** cloud credentials (`BAMBU_CLOUD_ACCESS_TOKEN`, or email + password). The LAN vars alone (`BAMBU_PRINTER_IP`, `BAMBU_SERIAL`, `BAMBU_LAN_ACCESS_CODE`) enable local MQTT live AMS state and optional FTPS, but not cloud print history import.
+
+When both cloud token and LAN vars are set, **local MQTT is preferred** for live AMS tray/RFID updates; cloud API still handles print history.
 
 ### How to get `BAMBU_CLOUD_ACCESS_TOKEN`
 
