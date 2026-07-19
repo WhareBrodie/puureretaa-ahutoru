@@ -207,6 +207,19 @@ class BambuMqttClient:
         payload = json.dumps({"pushing": {"sequence_id": "0", "command": "pushall"}})
         client.publish(topic_request, payload)
         self._last_pushall = time.time()
+        if self._mode == "local":
+            for slot_id in range(4):
+                rfid_payload = json.dumps(
+                    {
+                        "print": {
+                            "sequence_id": str(slot_id + 1),
+                            "command": "ams_get_rfid",
+                            "ams_id": 0,
+                            "slot_id": slot_id,
+                        }
+                    }
+                )
+                client.publish(topic_request, rfid_payload)
 
     def _parse_trays(self, payload: dict[str, Any]) -> dict[str, Any]:
         print_data = payload.get("print") or {}
@@ -229,7 +242,7 @@ class BambuMqttClient:
                     "remain": tray.get("remain"),
                 }
         if trays:
-            logger.debug("Parsed AMS trays from MQTT: %s", list(trays.keys()))
+            logger.info("AMS MQTT trays parsed for slots: %s", ", ".join(sorted(trays.keys())))
         return trays
 
     def _handle_message(self, payload: dict[str, Any]) -> None:

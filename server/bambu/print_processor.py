@@ -197,10 +197,14 @@ def process_print_job(
 def store_live_state(printer_state: dict[str, Any], trays: dict[str, Any]) -> None:
     import json
 
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     with connect() as conn:
         set_sync_state(conn, "live_printer_state", json.dumps(printer_state))
-        # Most MQTT messages are print-only and omit AMS; don't wipe tray state on those.
+        set_sync_state(conn, "mqtt_last_print_at", now)
+        # P1/P1S only includes AMS tray arrays in full pushall snapshots, not deltas.
         if trays:
             set_sync_state(conn, "live_ams_state", json.dumps(trays))
+            set_sync_state(conn, "mqtt_last_ams_at", now)
+            set_sync_state(conn, "mqtt_last_ams_slots", ",".join(sorted(trays.keys())))
             for slot_str, tray in trays.items():
                 update_mqtt_tray_state(1, int(slot_str), tray)
