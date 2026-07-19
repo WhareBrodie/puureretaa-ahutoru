@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from bambu.filament_rfid import lookup_filament, sync_slot_for_tray, teach_from_spool
+from bambu.filament_rfid import sync_slot_for_tray, teach_from_spool
 from db import connect, row_to_dict, rows_to_dicts
 
 
@@ -32,17 +32,51 @@ def _color_distance(hex_a: str | None, hex_b: str | None) -> int:
         return 999
 
 
+def _set_mapping_baseline(
+    conn,
+    printer_id: int,
+    slot: int,
+    tray: dict[str, Any] | None,
+) -> None:
+    if not tray:
+        conn.execute(
+            """
+            UPDATE ams_slot_mappings
+            SET baseline_tray_info_idx = NULL,
+                baseline_tray_type = NULL,
+                baseline_tray_color = NULL
+            WHERE printer_id = ? AND slot = ?
+            """,
+            (printer_id, slot),
+        )
+        return
+    conn.execute(
+        """
+        UPDATE ams_slot_mappings
+        SET baseline_tray_info_idx = ?,
+            baseline_tray_type = ?,
+            baseline_tray_color = ?
+        WHERE printer_id = ? AND slot = ?
+        """,
+        (
+            tray.get("tray_info_idx"),
+            tray.get("tray_type"),
+            tray.get("tray_color"),
+            printer_id,
+            slot,
+        ),
+    )
+
+
 def resolve_mapping_status(
     slot: dict[str, Any],
     live_tray: dict[str, Any] | None,
-    conn=None,
 ) -> dict[str, str | None]:
     spool_id = slot.get("spool_id") or slot.get("mapped_spool_id")
     tray = live_tray or {}
     tray_type = (tray.get("tray_type") or slot.get("mqtt_tray_type") or "").strip().upper()
     tray_color = _normalize_tray_color(tray.get("tray_color") or slot.get("mqtt_tray_color"))
-    mapped_material = (slot.get("material") or "").strip().upper()
-    mapped_color = _normalize_tray_color(slot.get("color_hex"))
+    tray_info_idx = (tray.get("tray_info_idx") or slot.get("mqtt_tray_info_idx") or "").strip()
 
     if not spool_id:
         return {
@@ -50,38 +84,33 @@ def resolve_mapping_status(
             "mapping_message": "Unmapped spool — pick from the dropdown",
         }
 
+    baseline_idx = (slot.get("baseline_tray_info_idx") or "").strip()
+    baseline_type = (slot.get("baseline_tray_type") or "").strip().upper()
+    baseline_color = _normalize_tray_color(slot.get("baseline_tray_color"))
+
     has_tray_signal = bool(
         tray_type
         or tray_color
-        or tray.get("tray_info_idx")
-        or slot.get("mqtt_tray_info_idx")
+        or tray_info_idx
         or tray.get("tag_uid")
         or slot.get("mqtt_tag_uid")
     )
-    if not has_tray_signal:
+    if not has_tray_signal or (not baseline_idx and not baseline_type and not baseline_color):
         return {"mapping_status": "mapped", "mapping_message": None}
 
-    tray_info_idx = (tray.get("tray_info_idx") or slot.get("mqtt_tray_info_idx") or "").strip()
-    if tray_info_idx and conn and slot.get("brand"):
-        product = lookup_filament(conn, tray_info_idx=tray_info_idx)
-        if product:
-            if (
-                product["brand"] != slot.get("brand")
-                or product["material"].upper() != mapped_material
-                or (product.get("color_name") or "") != (slot.get("color_name") or "")
-            ):
-                return {
-                    "mapping_status": "mismatch",
-                    "mapping_message": "Filament in slot changed — remap spool",
-                }
-
-    if tray_type and mapped_material and tray_type not in {mapped_material, "UNKNOWN"}:
+    if baseline_idx and tray_info_idx and baseline_idx != tray_info_idx:
         return {
             "mapping_status": "mismatch",
             "mapping_message": "Filament in slot changed — remap spool",
         }
 
-    if tray_color and mapped_color and _color_distance(tray_color, mapped_color) > 120:
+    if baseline_type and tray_type and baseline_type != tray_type:
+        return {
+            "mapping_status": "mismatch",
+            "mapping_message": "Filament in slot changed — remap spool",
+        }
+
+    if baseline_color and tray_color and _color_distance(baseline_color, tray_color) > 120:
         return {
             "mapping_status": "mismatch",
             "mapping_message": "Filament in slot changed — remap spool",
@@ -95,10 +124,9 @@ def enrich_slots_with_mapping_status(
     ams_live: dict[str, Any],
 ) -> list[dict[str, Any]]:
     enriched: list[dict[str, Any]] = []
-    with connect() as conn:
-        for slot in slots:
-            tray = ams_live.get(str(slot["slot"])) or ams_live.get(slot["slot"]) or {}
-            enriched.append({**slot, **resolve_mapping_status(slot, tray, conn)})
+    for slot in slots:
+        tray = ams_live.get(str(slot["slot"])) or ams_live.get(slot["slot"]) or {}
+        enriched.append({**slot, **resolve_mapping_status(slot, tray)})
     return enriched
 
 
@@ -176,6 +204,9 @@ def update_ams_slot(slot: int, data: dict[str, Any], printer_id: int | None = No
             }
             if tray.get("tag_uid") or tray.get("tray_info_idx"):
                 teach_from_spool(conn, int(spool_id), tray)
+            _set_mapping_baseline(conn, printer_id, slot, tray)
+        else:
+            _set_mapping_baseline(conn, printer_id, slot, None)
     slots = list_ams_slots(printer_id)
     return next(s for s in slots if s["slot"] == slot)
 
