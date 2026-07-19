@@ -14,12 +14,48 @@ from db import connect, deduct_spool_weight, get_data_dir, row_to_dict, rows_to_
 def _spool_query(extra_where: str = "", params: tuple[Any, ...] = ()) -> str:
     return f"""
         SELECT s.*, l.name AS location_name,
+               e.brand AS empty_spool_brand, e.model AS empty_spool_model,
                (SELECT MAX(dried_at) FROM drying_logs d WHERE d.spool_id = s.id) AS last_dried_at
         FROM spools s
         LEFT JOIN storage_locations l ON l.id = s.location_id
+        LEFT JOIN empty_spool_weights e ON e.id = s.empty_spool_weight_id
         {extra_where}
         ORDER BY s.updated_at DESC, s.id DESC
     """
+
+
+def _default_empty_spool_profile(conn: sqlite3.Connection, brand: str) -> sqlite3.Row | None:
+    return conn.execute(
+        """
+        SELECT id, weight_g FROM empty_spool_weights
+        WHERE brand = ? OR brand = 'Generic'
+        ORDER BY CASE WHEN brand = ? THEN 0 ELSE 1 END, id
+        LIMIT 1
+        """,
+        (brand, brand),
+    ).fetchone()
+
+
+def resolve_empty_spool_weight(
+    conn: sqlite3.Connection,
+    *,
+    brand: str,
+    empty_spool_weight_g: float | None = None,
+    empty_spool_weight_id: int | None = None,
+) -> tuple[float, int | None]:
+    if empty_spool_weight_id:
+        row = conn.execute(
+            "SELECT id, weight_g FROM empty_spool_weights WHERE id = ?",
+            (empty_spool_weight_id,),
+        ).fetchone()
+        if row:
+            return float(row["weight_g"]), int(row["id"])
+    if empty_spool_weight_g is not None:
+        return float(empty_spool_weight_g), empty_spool_weight_id
+    guess = _default_empty_spool_profile(conn, brand)
+    if guess:
+        return float(guess["weight_g"]), int(guess["id"])
+    return 250.0, None
 
 
 def list_spools(material: str | None = None, low_stock_only: bool = False) -> list[dict[str, Any]]:
@@ -103,14 +139,27 @@ def create_spool(data: dict[str, Any]) -> dict[str, Any]:
         remaining = initial
 
     with connect() as conn:
+        empty_spool_weight_id = data.get("empty_spool_weight_id")
+        empty_spool_weight_g = data.get("empty_spool_weight_g")
+        resolved_empty, resolved_profile_id = resolve_empty_spool_weight(
+            conn,
+            brand=brand,
+            empty_spool_weight_g=empty_spool_weight_g,
+            empty_spool_weight_id=int(empty_spool_weight_id) if empty_spool_weight_id else None,
+        )
+        if empty_spool_weight_id is None and empty_spool_weight_g is None:
+            empty_spool_weight_id = resolved_profile_id
+            empty_spool_weight_g = resolved_empty
+        elif empty_spool_weight_id:
+            empty_spool_weight_g = resolved_empty
         cur = conn.execute(
             """
             INSERT INTO spools (
                 brand, material, color_name, color_hex, purchase_price, purchase_date,
                 supplier, batch_number, rating, location_id, remaining_g, initial_weight_g,
-                empty_spool_weight_g, nfc_tag_id, qr_code_id, bambu_tag_uid, bambu_tray_info_idx,
+                empty_spool_weight_g, empty_spool_weight_id, nfc_tag_id, qr_code_id, bambu_tag_uid, bambu_tray_info_idx,
                 notes, low_stock_threshold_g
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 brand,
@@ -125,7 +174,8 @@ def create_spool(data: dict[str, Any]) -> dict[str, Any]:
                 data.get("location_id"),
                 remaining,
                 initial,
-                data.get("empty_spool_weight_g"),
+                empty_spool_weight_g if empty_spool_weight_g is not None else resolved_empty,
+                empty_spool_weight_id if empty_spool_weight_id is not None else resolved_profile_id,
                 data.get("nfc_tag_id"),
                 qr_code_id,
                 data.get("bambu_tag_uid"),
@@ -140,34 +190,53 @@ def create_spool(data: dict[str, Any]) -> dict[str, Any]:
 
 def update_spool(spool_id: int, data: dict[str, Any]) -> dict[str, Any]:
     with connect() as conn:
-        existing = conn.execute("SELECT id FROM spools WHERE id = ?", (spool_id,)).fetchone()
+        existing = conn.execute(
+            "SELECT brand, empty_spool_weight_g, empty_spool_weight_id FROM spools WHERE id = ?",
+            (spool_id,),
+        ).fetchone()
         if not existing:
             raise KeyError("spool not found")
 
+        payload = dict(data)
+        if "empty_spool_weight_id" in payload or "empty_spool_weight_g" in payload:
+            resolved_empty, resolved_profile_id = resolve_empty_spool_weight(
+                conn,
+                brand=(payload.get("brand") or existing["brand"]),
+                empty_spool_weight_g=payload.get("empty_spool_weight_g", existing["empty_spool_weight_g"]),
+                empty_spool_weight_id=(
+                    int(payload["empty_spool_weight_id"])
+                    if payload.get("empty_spool_weight_id")
+                    else existing["empty_spool_weight_id"]
+                ),
+            )
+            payload["empty_spool_weight_g"] = resolved_empty
+            payload["empty_spool_weight_id"] = resolved_profile_id
+
         fields = {
-            "brand": data.get("brand"),
-            "material": data.get("material").upper() if data.get("material") else None,
-            "color_name": data.get("color_name"),
-            "color_hex": _normalize_hex(data.get("color_hex")) if data.get("color_hex") else data.get("color_hex"),
-            "purchase_price": data.get("purchase_price"),
-            "purchase_date": data.get("purchase_date"),
-            "supplier": data.get("supplier"),
-            "batch_number": data.get("batch_number"),
-            "rating": data.get("rating"),
-            "location_id": data.get("location_id"),
-            "remaining_g": data.get("remaining_g"),
-            "initial_weight_g": data.get("initial_weight_g"),
-            "empty_spool_weight_g": data.get("empty_spool_weight_g"),
-            "nfc_tag_id": data.get("nfc_tag_id"),
-            "bambu_tag_uid": data.get("bambu_tag_uid"),
-            "bambu_tray_info_idx": data.get("bambu_tray_info_idx"),
-            "notes": data.get("notes"),
-            "low_stock_threshold_g": data.get("low_stock_threshold_g"),
+            "brand": payload.get("brand"),
+            "material": payload.get("material").upper() if payload.get("material") else None,
+            "color_name": payload.get("color_name"),
+            "color_hex": _normalize_hex(payload.get("color_hex")) if payload.get("color_hex") else payload.get("color_hex"),
+            "purchase_price": payload.get("purchase_price"),
+            "purchase_date": payload.get("purchase_date"),
+            "supplier": payload.get("supplier"),
+            "batch_number": payload.get("batch_number"),
+            "rating": payload.get("rating"),
+            "location_id": payload.get("location_id"),
+            "remaining_g": payload.get("remaining_g"),
+            "initial_weight_g": payload.get("initial_weight_g"),
+            "empty_spool_weight_g": payload.get("empty_spool_weight_g"),
+            "empty_spool_weight_id": payload.get("empty_spool_weight_id"),
+            "nfc_tag_id": payload.get("nfc_tag_id"),
+            "bambu_tag_uid": payload.get("bambu_tag_uid"),
+            "bambu_tray_info_idx": payload.get("bambu_tray_info_idx"),
+            "notes": payload.get("notes"),
+            "low_stock_threshold_g": payload.get("low_stock_threshold_g"),
         }
         assignments = []
         values: list[Any] = []
         for key, value in fields.items():
-            if key in data:
+            if key in payload:
                 assignments.append(f"{key} = ?")
                 values.append(value)
         if assignments:
@@ -193,31 +262,40 @@ def delete_spool(spool_id: int) -> None:
 def calculate_remaining_from_scale(spool_id: int, total_weight_g: float) -> dict[str, Any]:
     if total_weight_g <= 0:
         raise ValueError("total_weight_g must be positive")
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     with connect() as conn:
         row = conn.execute(
-            "SELECT empty_spool_weight_g, brand, material FROM spools WHERE id = ?",
+            """
+            SELECT empty_spool_weight_g, empty_spool_weight_id, brand
+            FROM spools WHERE id = ?
+            """,
             (spool_id,),
         ).fetchone()
         if not row:
             raise KeyError("spool not found")
-        empty_weight = row["empty_spool_weight_g"]
-        if empty_weight is None:
-            guess = conn.execute(
-                """
-                SELECT weight_g FROM empty_spool_weights
-                WHERE brand = ? OR brand = 'Generic'
-                ORDER BY CASE WHEN brand = ? THEN 0 ELSE 1 END
-                LIMIT 1
-                """,
-                (row["brand"], row["brand"]),
-            ).fetchone()
-            empty_weight = guess["weight_g"] if guess else 250
+        empty_weight, profile_id = resolve_empty_spool_weight(
+            conn,
+            brand=row["brand"],
+            empty_spool_weight_g=row["empty_spool_weight_g"],
+            empty_spool_weight_id=row["empty_spool_weight_id"],
+        )
         remaining = max(0.0, total_weight_g - empty_weight)
         conn.execute(
-            "UPDATE spools SET remaining_g = ?, empty_spool_weight_g = ?, updated_at = datetime('now') WHERE id = ?",
-            (remaining, empty_weight, spool_id),
+            """
+            UPDATE spools
+            SET remaining_g = ?, empty_spool_weight_g = ?, empty_spool_weight_id = ?,
+                last_weighed_at = ?, updated_at = datetime('now')
+            WHERE id = ?
+            """,
+            (remaining, empty_weight, profile_id, now, spool_id),
         )
-    return get_spool(spool_id)
+    spool = get_spool(spool_id)
+    spool["scale_calculation"] = {
+        "total_weight_g": total_weight_g,
+        "empty_spool_weight_g": empty_weight,
+        "filament_remaining_g": remaining,
+    }
+    return spool
 
 
 def add_drying_log(spool_id: int, data: dict[str, Any]) -> dict[str, Any]:
@@ -254,21 +332,9 @@ def save_photo(spool_id: int, filename: str, content: bytes) -> dict[str, Any]:
 
 
 def lookup_empty_spool_weights(brand: str | None = None, model: str | None = None) -> list[dict[str, Any]]:
-    clauses: list[str] = []
-    params: list[Any] = []
-    if brand:
-        clauses.append("brand LIKE ?")
-        params.append(f"%{brand}%")
-    if model:
-        clauses.append("model LIKE ?")
-        params.append(f"%{model}%")
-    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
-    with connect() as conn:
-        rows = conn.execute(
-            f"SELECT * FROM empty_spool_weights {where} ORDER BY brand, model",
-            tuple(params),
-        ).fetchall()
-        return rows_to_dicts(rows)
+    from routes.empty_spool_weights import list_profiles
+
+    return list_profiles(brand=brand, model=model)
 
 
 def find_spool_by_bambu_tag(tag_uid: str) -> dict[str, Any] | None:

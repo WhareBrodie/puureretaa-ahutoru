@@ -60,6 +60,14 @@ export default function SpoolDetailPage() {
 
   const photo = photoUrl(spool);
   const driedDays = daysSince(spool.last_dried_at);
+  const emptyWeight = Number(spool.empty_spool_weight_g || 0);
+  const totalWeight = Number(scaleWeight);
+  const previewFilament = totalWeight > 0 && emptyWeight > 0
+    ? Math.max(0, totalWeight - emptyWeight)
+    : null;
+  const emptyLabel = spool.empty_spool_brand
+    ? `${spool.empty_spool_brand}${spool.empty_spool_model ? ` · ${spool.empty_spool_model}` : ''}`
+    : null;
   const costPerGram = spool.purchase_price && spool.initial_weight_g
     ? spool.purchase_price / spool.initial_weight_g
     : null;
@@ -91,19 +99,28 @@ export default function SpoolDetailPage() {
             <div><strong>Supplier</strong><div>{spool.supplier || '—'}</div></div>
             <div><strong>Batch</strong><div>{spool.batch_number || '—'}</div></div>
             <div><strong>Location</strong><div>{spool.location_name || '—'}</div></div>
-            <div><strong>Empty spool</strong><div>{spool.empty_spool_weight_g ? `${spool.empty_spool_weight_g}g` : '—'}</div></div>
+            <div><strong>Empty spool</strong><div>{emptyLabel ? `${emptyLabel} (${emptyWeight || '—'}g)` : (emptyWeight ? `${emptyWeight}g` : '—')}</div></div>
+            <div><strong>Last weighed</strong><div>{spool.last_weighed_at ? formatDate(spool.last_weighed_at) : 'Never'}</div></div>
             <div><strong>Last dried</strong><div>{spool.last_dried_at ? `${formatDate(spool.last_dried_at)} (${driedDays}d ago)` : 'Never logged'}</div></div>
           </div>
         </div>
 
         <div className="grid">
           <div className="card">
-            <h2>Scale calculator</h2>
-            <p className="muted">Weigh the spool and enter total grams to update remaining filament.</p>
+            <h2>Weigh spool</h2>
+            <p className="muted">
+              Put the spool on the scale and enter the total weight. Filament remaining = total − empty spool
+              {emptyWeight ? ` (${emptyWeight}g)` : ''}.
+            </p>
             <div className="toolbar">
-              <input value={scaleWeight} onChange={(e) => setScaleWeight(e.target.value)} placeholder="Total weight on scale (g)" />
-              <button onClick={handleScale}>Calculate</button>
+              <input value={scaleWeight} onChange={(e) => setScaleWeight(e.target.value)} placeholder="Total on scale (g)" />
+              <button onClick={handleScale}>Update from scale</button>
             </div>
+            {previewFilament != null && (
+              <p className="muted">
+                Preview: {totalWeight}g total − {emptyWeight}g spool = <strong>{Math.round(previewFilament)}g</strong> filament
+              </p>
+            )}
           </div>
 
           <div className="card">

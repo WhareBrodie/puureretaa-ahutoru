@@ -1,6 +1,7 @@
 [
   {"brand": "Bambu Lab", "model": "PLA Basic", "weight_g": 210, "notes": "Cardboard spool"},
   {"brand": "Bambu Lab", "model": "PLA Matte", "weight_g": 210, "notes": "Cardboard spool"},
+  {"brand": "Bambu Lab", "model": "Plastic spool", "weight_g": 238, "notes": "Refill / plastic spool"},
   {"brand": "Bambu Lab", "model": "PETG Basic", "weight_g": 210, "notes": "Cardboard spool"},
   {"brand": "Bambu Lab", "model": "ABS", "weight_g": 210, "notes": "Cardboard spool"},
   {"brand": "Bambu Lab", "model": "TPU 95A", "weight_g": 250, "notes": "Plastic spool"},

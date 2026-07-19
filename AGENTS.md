@@ -28,7 +28,9 @@ Filament inventory and print tracking for a Bambu Lab P1S with full AMS, inspire
 |------|----------------|-------------|
 | App (React, Python) | GitHub → Docker image | Push to `main` → GitOps redeploy |
 | SQLite DB, photos | Server volume (`/c/containers/vibes/purereta-ahutoru/data/`) | In-app CRUD + Bambu sync |
-| Seed empty-spool weights | Git repo (`data/seed_empty_spool_weights.json`) | Seeded once on first DB init |
+| Seed empty-spool weights | Git repo (`data/seed_empty_spool_weights.json`) | Seeded once on first DB init; manage profiles in Settings → Inventory |
+
+Each spool links to an **empty spool profile** (tare weight). Weigh-in: `filament_g = scale_total_g − empty_spool_weight_g`. `last_weighed_at` is set on every scale update — use it to know when estimates were last anchored.
 
 `color_hex` accepts a plain hex (`#RRGGBB`) or JSON for multi-colour: `{"mode":"rainbow"}`, or `{"mode":"multi","colors":["#A","#B",...]}` (2–9 colours; dual = 2).
 
@@ -160,6 +162,7 @@ data/
   migrations/002_projects.sql
   migrations/003_bambu_filament_rfid.sql
   migrations/004_bambu_ignored_tasks.sql
+  migrations/005_spool_weigh_profiles.sql
   seed_empty_spool_weights.json
 Dockerfile                Multi-stage: npm build → Python Alpine
 docker-compose.yml        Production — Traefik labels, host volume, no ports

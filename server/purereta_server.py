@@ -19,7 +19,7 @@ if str(SERVER_DIR) not in sys.path:
     sys.path.insert(0, str(SERVER_DIR))
 
 from db import get_data_dir, get_root, init_db
-from routes import ams, csv_io, dashboard, locations, prints, projects, settings, spools
+from routes import ams, csv_io, dashboard, empty_spool_weights, locations, prints, projects, settings, spools
 
 ROOT = get_root()
 DIST = ROOT / "dist"
@@ -119,7 +119,7 @@ class PureretaHandler(SimpleHTTPRequestHandler):
                 self.end_json(
                     200,
                     {
-                        "entries": spools.lookup_empty_spool_weights(
+                        "entries": empty_spool_weights.list_profiles(
                             brand=query.get("brand", [None])[0],
                             model=query.get("model", [None])[0],
                         )
@@ -191,6 +191,10 @@ class PureretaHandler(SimpleHTTPRequestHandler):
         try:
             if parts == ["api", "locations"]:
                 self.end_json(201, locations.create_location(self.read_json_body()))
+                return
+
+            if parts == ["api", "empty-spool-weights"]:
+                self.end_json(201, empty_spool_weights.create_profile(self.read_json_body()))
                 return
 
             if parts == ["api", "spools"]:
@@ -272,6 +276,9 @@ class PureretaHandler(SimpleHTTPRequestHandler):
             if len(parts) == 3 and parts[0] == "api" and parts[1] == "locations":
                 self.end_json(200, locations.update_location(int(parts[2]), self.read_json_body()))
                 return
+            if len(parts) == 3 and parts[0] == "api" and parts[1] == "empty-spool-weights":
+                self.end_json(200, empty_spool_weights.update_profile(int(parts[2]), self.read_json_body()))
+                return
             if len(parts) == 3 and parts[0] == "api" and parts[1] == "spools":
                 self.end_json(200, spools.update_spool(int(parts[2]), self.read_json_body()))
                 return
@@ -303,6 +310,10 @@ class PureretaHandler(SimpleHTTPRequestHandler):
         try:
             if len(parts) == 3 and parts[0] == "api" and parts[1] == "locations":
                 locations.delete_location(int(parts[2]))
+                self.end_json(200, {"ok": True})
+                return
+            if len(parts) == 3 and parts[0] == "api" and parts[1] == "empty-spool-weights":
+                empty_spool_weights.delete_profile(int(parts[2]))
                 self.end_json(200, {"ok": True})
                 return
             if len(parts) == 3 and parts[0] == "api" and parts[1] == "spools":

@@ -28,7 +28,7 @@ def list_ams_slots(printer_id: int | None = None) -> list[dict[str, Any]]:
         rows = conn.execute(
             """
             SELECT m.*, s.brand, s.material, s.color_name, s.color_hex, s.remaining_g,
-                   s.id AS mapped_spool_id
+                   s.last_weighed_at, s.id AS mapped_spool_id
             FROM ams_slot_mappings m
             LEFT JOIN spools s ON s.id = m.spool_id
             WHERE m.printer_id = ?

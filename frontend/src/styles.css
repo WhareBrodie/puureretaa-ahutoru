@@ -290,6 +290,53 @@ body {
   font-size: 0.82rem;
 }
 
+.settings-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.settings-tabs button.active {
+  background: var(--accent);
+  color: #fff;
+}
+
+.settings-panel {
+  max-width: 960px;
+}
+
+.settings-details {
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  padding: 0.75rem 1rem;
+}
+
+.settings-details summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.status-line,
+.plain-list {
+  margin: 0;
+}
+
+.plain-list {
+  padding-left: 1.1rem;
+}
+
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: auto;
+}
+
+label.full-width {
+  grid-column: 1 / -1;
+}
+
 .stat-value {
   font-size: 2rem;
   font-weight: 700;

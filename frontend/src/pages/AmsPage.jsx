@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { api, colorStyle } from '../api';
+import { api, colorStyle, formatDate } from '../api';
 
 function mqttColor(hex) {
   if (!hex) return null;
@@ -121,7 +121,10 @@ export default function AmsPage() {
               {slot.brand && (
                 <div>
                   <strong>{slot.color_name || slot.material}</strong>
-                  <div className="muted">{slot.brand} · {Math.round(slot.remaining_g || 0)}g</div>
+                  <div className="muted">
+                    {slot.brand} · {Math.round(slot.remaining_g || 0)}g
+                    {slot.last_weighed_at ? ` · weighed ${formatDate(slot.last_weighed_at)}` : ' · never weighed'}
+                  </div>
                 </div>
               )}
             </div>

@@ -83,6 +83,15 @@ export const api = {
     const query = params.toString();
     return request(`/empty-spool-weights${query ? `?${query}` : ''}`);
   },
+  emptySpoolProfiles: {
+    list: (brand) => {
+      const query = brand ? `?brand=${encodeURIComponent(brand)}` : '';
+      return request(`/empty-spool-weights${query}`).then((data) => data.entries || []);
+    },
+    create: (body) => request('/empty-spool-weights', { method: 'POST', body: JSON.stringify(body) }),
+    update: (id, body) => request(`/empty-spool-weights/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+    remove: (id) => request(`/empty-spool-weights/${id}`, { method: 'DELETE' }),
+  },
   prints: {
     list: (pendingReview = false) =>
       request(`/prints${pendingReview ? '?pending_review=true' : ''}`),
