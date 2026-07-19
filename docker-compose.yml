@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  purereta-ahutoru:
+    build: .
+    container_name: purereta-ahutoru
+    restart: unless-stopped
+    volumes:
+      - /c/containers/vibes/purereta-ahutoru/data:/app/data
+    environment:
+      - TZ=Pacific/Auckland
+      - PUBLIC_URL=http://xn--preret-ahutoru-qub40o.internal
+      - DEFAULT_LOW_STOCK_THRESHOLD_G=100
+      - SYNC_CLOUD_INTERVAL_S=300
+    networks:
+      - proxy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.purereta.rule=Host(`xn--preret-ahutoru-qub40o.internal`)"
+      - "traefik.http.routers.purereta.entrypoints=web"
+      - "traefik.http.services.purereta.loadbalancer.server.port=80"
+
+networks:
+  proxy:
+    external: true
+    name: traefik_default

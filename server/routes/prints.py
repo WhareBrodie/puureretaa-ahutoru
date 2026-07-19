@@ -1,0 +1,181 @@
+"""Print job logging and review queue."""
+
+from __future__ import annotations
+
+from datetime import datetime, timezone
+from typing import Any
+
+from db import connect, deduct_spool_weight, row_to_dict, rows_to_dicts
+
+
+def _print_query(where: str = "", params: tuple[Any, ...] = ()) -> str:
+    return f"""
+        SELECT pj.*, p.name AS printer_name
+        FROM print_jobs pj
+        LEFT JOIN printers p ON p.id = pj.printer_id
+        {where}
+        ORDER BY COALESCE(pj.started_at, pj.created_at) DESC
+    """
+
+
+def _attach_usages(conn, print_job: dict[str, Any]) -> dict[str, Any]:
+    usages = conn.execute(
+        "SELECT * FROM print_usages WHERE print_job_id = ? ORDER BY ams_slot",
+        (print_job["id"],),
+    ).fetchall()
+    print_job["usages"] = rows_to_dicts(usages)
+    return print_job
+
+
+def list_prints(pending_review_only: bool = False) -> list[dict[str, Any]]:
+    where = "WHERE pj.needs_review = 1" if pending_review_only else ""
+    with connect() as conn:
+        rows = conn.execute(_print_query(where)).fetchall()
+        result = []
+        for row in rows:
+            item = _attach_usages(conn, row_to_dict(row))
+            result.append(item)
+        return result
+
+
+def get_print(print_id: int) -> dict[str, Any]:
+    with connect() as conn:
+        row = conn.execute(
+            _print_query("WHERE pj.id = ?"),
+            (print_id,),
+        ).fetchone()
+        if not row:
+            raise KeyError("print not found")
+        return _attach_usages(conn, row_to_dict(row))
+
+
+def create_manual_print(data: dict[str, Any]) -> dict[str, Any]:
+    title = (data.get("title") or "Manual print").strip()
+    started_at = data.get("started_at") or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    usages = data.get("usages") or []
+    if not usages:
+        raise ValueError("at least one usage entry is required")
+
+    with connect() as conn:
+        total_used = sum(float(u.get("used_g") or 0) for u in usages)
+        duration_s = data.get("duration_s")
+        cur = conn.execute(
+            """
+            INSERT INTO print_jobs (
+                title, started_at, ended_at, duration_s, status, source, printer_id,
+                needs_review, total_used_g, completion_percent
+            ) VALUES (?, ?, ?, ?, 'completed', 'manual', ?, 0, ?, 100)
+            """,
+            (
+                title,
+                started_at,
+                data.get("ended_at") or started_at,
+                duration_s,
+                data.get("printer_id") or 1,
+                total_used,
+            ),
+        )
+        print_id = cur.lastrowid
+        for usage in usages:
+            spool_id = usage.get("spool_id")
+            used_g = float(usage.get("used_g") or 0)
+            conn.execute(
+                """
+                INSERT INTO print_usages (
+                    print_job_id, ams_slot, spool_id, material, color, used_g, used_m, resolved
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    print_id,
+                    usage.get("ams_slot"),
+                    spool_id,
+                    usage.get("material"),
+                    usage.get("color"),
+                    used_g,
+                    usage.get("used_m"),
+                    1 if spool_id else 0,
+                ),
+            )
+            if spool_id and used_g > 0:
+                deduct_spool_weight(conn, spool_id, used_g)
+    return get_print(print_id)
+
+
+def resolve_print_review(print_id: int, assignments: list[dict[str, Any]], skip_deduction: bool = False) -> dict[str, Any]:
+    with connect() as conn:
+        job = conn.execute("SELECT * FROM print_jobs WHERE id = ?", (print_id,)).fetchone()
+        if not job:
+            raise KeyError("print not found")
+        if not job["needs_review"]:
+            raise ValueError("print is not pending review")
+
+        for assignment in assignments:
+            usage_id = assignment.get("usage_id")
+            spool_id = assignment.get("spool_id")
+            if not usage_id:
+                continue
+            usage = conn.execute(
+                "SELECT * FROM print_usages WHERE id = ? AND print_job_id = ?",
+                (usage_id, print_id),
+            ).fetchone()
+            if not usage:
+                raise KeyError(f"usage {usage_id} not found")
+            conn.execute(
+                "UPDATE print_usages SET spool_id = ?, resolved = ? WHERE id = ?",
+                (spool_id, 1 if spool_id else 0, usage_id),
+            )
+            if spool_id and not skip_deduction and usage["used_g"] > 0:
+                scale = (job["completion_percent"] or 100) / 100.0
+                deduct_spool_weight(conn, spool_id, usage["used_g"] * scale)
+
+        unresolved = conn.execute(
+            "SELECT COUNT(*) AS c FROM print_usages WHERE print_job_id = ? AND (spool_id IS NULL OR resolved = 0)",
+            (print_id,),
+        ).fetchone()["c"]
+        conn.execute(
+            """
+            UPDATE print_jobs
+            SET needs_review = ?, review_note = ?
+            WHERE id = ?
+            """,
+            (1 if unresolved else 0, assignment.get("review_note") if isinstance(assignment, dict) else None, print_id),
+        )
+    return get_print(print_id)
+
+
+def resolve_print_review_v2(print_id: int, data: dict[str, Any]) -> dict[str, Any]:
+    assignments = data.get("assignments") or []
+    skip = bool(data.get("skip_deduction"))
+    with connect() as conn:
+        job = conn.execute("SELECT * FROM print_jobs WHERE id = ?", (print_id,)).fetchone()
+        if not job:
+            raise KeyError("print not found")
+
+        for assignment in assignments:
+            usage_id = assignment.get("usage_id")
+            spool_id = assignment.get("spool_id")
+            usage = conn.execute(
+                "SELECT * FROM print_usages WHERE id = ? AND print_job_id = ?",
+                (usage_id, print_id),
+            ).fetchone()
+            if not usage:
+                continue
+            conn.execute(
+                "UPDATE print_usages SET spool_id = ?, resolved = ? WHERE id = ?",
+                (spool_id, 1 if spool_id else 0, usage_id),
+            )
+            if spool_id and not skip and usage["used_g"] > 0:
+                scale = (job["completion_percent"] or 100) / 100.0
+                deduct_spool_weight(conn, spool_id, usage["used_g"] * scale)
+
+        unresolved = conn.execute(
+            "SELECT COUNT(*) AS c FROM print_usages WHERE print_job_id = ? AND spool_id IS NULL",
+            (print_id,),
+        ).fetchone()["c"]
+        conn.execute(
+            """
+            UPDATE print_jobs SET needs_review = ?, review_note = ? WHERE id = ?
+            """,
+            (1 if unresolved else 0, data.get("review_note"), print_id),
+        )
+    return get_print(print_id)

@@ -1,0 +1,181 @@
+import { useEffect, useState } from 'react';
+import { api } from '../api';
+
+export default function SettingsPage() {
+  const [settings, setSettings] = useState(null);
+  const [locations, setLocations] = useState([]);
+  const [locationForm, setLocationForm] = useState({ name: '', description: '' });
+  const [csvText, setCsvText] = useState('');
+  const [importResult, setImportResult] = useState(null);
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
+
+  const load = () => {
+    Promise.all([api.settings.get(), api.locations.list()])
+      .then(([settingsData, locationData]) => {
+        setSettings(settingsData);
+        setLocations(locationData.locations || []);
+      })
+      .catch((err) => setError(err.message));
+  };
+
+  useEffect(load, []);
+
+  const saveSettings = async () => {
+    try {
+      const updated = await api.settings.update({
+        default_low_stock_threshold_g: Number(settings.default_low_stock_threshold_g),
+        drying_alert_days: Number(settings.drying_alert_days),
+        material_low_stock_thresholds: settings.material_low_stock_thresholds,
+        printer: settings.printer,
+      });
+      setSettings(updated);
+      setMessage('Settings saved');
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const addLocation = async () => {
+    try {
+      await api.locations.create(locationForm);
+      setLocationForm({ name: '', description: '' });
+      load();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const exportCsv = async () => {
+    const csv = await api.exportCsv();
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'spools.csv';
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const importCsv = async () => {
+    try {
+      const result = await api.importCsv(csvText, false);
+      setImportResult(result);
+      load();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  if (!settings) return <div className="card muted">Loading settings…</div>;
+
+  return (
+    <>
+      <div className="page-header">
+        <div>
+          <h1>Settings</h1>
+          <p>Printer config, alerts, locations, and CSV backup</p>
+        </div>
+      </div>
+
+      {error && <div className="card danger">{error}</div>}
+      {message && <div className="card">{message}</div>}
+
+      <div className="grid grid-2">
+        <div className="card form-grid">
+          <h2>Printer</h2>
+          <label>
+            Name
+            <input
+              value={settings.printer?.name || ''}
+              onChange={(e) => setSettings({ ...settings, printer: { ...settings.printer, name: e.target.value } })}
+            />
+          </label>
+          <label>
+            LAN IP
+            <input
+              value={settings.printer?.lan_ip || settings.env?.printer_ip || ''}
+              onChange={(e) => setSettings({ ...settings, printer: { ...settings.printer, lan_ip: e.target.value } })}
+            />
+          </label>
+          <label>
+            Serial
+            <input
+              value={settings.printer?.serial || settings.env?.serial || ''}
+              onChange={(e) => setSettings({ ...settings, printer: { ...settings.printer, serial: e.target.value } })}
+            />
+          </label>
+          <label>
+            Cloud device ID
+            <input
+              value={settings.printer?.cloud_device_id || ''}
+              onChange={(e) => setSettings({ ...settings, printer: { ...settings.printer, cloud_device_id: e.target.value } })}
+            />
+          </label>
+          <p className="muted">
+            Bambu LAN access code and cloud credentials are set in Portainer env vars:
+            BAMBU_LAN_ACCESS_CODE, BAMBU_CLOUD_EMAIL, BAMBU_CLOUD_PASSWORD (or BAMBU_CLOUD_ACCESS_TOKEN).
+          </p>
+          <div>
+            MQTT configured: {settings.bambu_configured ? 'Yes' : 'No'} · Cloud configured: {settings.bambu_cloud_configured ? 'Yes' : 'No'}
+          </div>
+          <button onClick={saveSettings}>Save settings</button>
+        </div>
+
+        <div className="card form-grid">
+          <h2>Alerts</h2>
+          <label>
+            Default low-stock threshold (g)
+            <input
+              type="number"
+              value={settings.default_low_stock_threshold_g}
+              onChange={(e) => setSettings({ ...settings, default_low_stock_threshold_g: e.target.value })}
+            />
+          </label>
+          <label>
+            Drying alert after (days)
+            <input
+              type="number"
+              value={settings.drying_alert_days}
+              onChange={(e) => setSettings({ ...settings, drying_alert_days: e.target.value })}
+            />
+          </label>
+        </div>
+
+        <div className="card form-grid">
+          <h2>Storage locations</h2>
+          <ul>
+            {locations.map((location) => (
+              <li key={location.id}>{location.name}{location.description ? ` — ${location.description}` : ''}</li>
+            ))}
+          </ul>
+          <label>
+            New location name
+            <input value={locationForm.name} onChange={(e) => setLocationForm({ ...locationForm, name: e.target.value })} />
+          </label>
+          <label>
+            Description
+            <input value={locationForm.description} onChange={(e) => setLocationForm({ ...locationForm, description: e.target.value })} />
+          </label>
+          <button className="secondary" onClick={addLocation}>Add location</button>
+        </div>
+
+        <div className="card form-grid">
+          <h2>CSV backup</h2>
+          <button className="secondary" onClick={exportCsv}>Export spools CSV</button>
+          <label>
+            Import CSV
+            <textarea rows={8} value={csvText} onChange={(e) => setCsvText(e.target.value)} placeholder="Paste CSV export here" />
+          </label>
+          <button className="secondary" onClick={importCsv}>Import spools</button>
+          {importResult && (
+            <div className="muted">
+              Created {importResult.created}, updated {importResult.updated}
+              {importResult.errors?.length ? `, errors: ${importResult.errors.join('; ')}` : ''}
+            </div>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}

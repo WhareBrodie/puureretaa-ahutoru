@@ -1,0 +1,16 @@
+[
+  {"brand": "Bambu Lab", "model": "PLA Basic", "weight_g": 210, "notes": "Cardboard spool"},
+  {"brand": "Bambu Lab", "model": "PLA Matte", "weight_g": 210, "notes": "Cardboard spool"},
+  {"brand": "Bambu Lab", "model": "PETG Basic", "weight_g": 210, "notes": "Cardboard spool"},
+  {"brand": "Bambu Lab", "model": "ABS", "weight_g": 210, "notes": "Cardboard spool"},
+  {"brand": "Bambu Lab", "model": "TPU 95A", "weight_g": 250, "notes": "Plastic spool"},
+  {"brand": "Polymaker", "model": "PolyLite PLA", "weight_g": 145, "notes": "Plastic spool"},
+  {"brand": "Polymaker", "model": "PolyLite PETG", "weight_g": 145, "notes": "Plastic spool"},
+  {"brand": "eSun", "model": "PLA+", "weight_g": 250, "notes": "Plastic spool"},
+  {"brand": "eSun", "model": "PETG", "weight_g": 250, "notes": "Plastic spool"},
+  {"brand": "Hatchbox", "model": "PLA", "weight_g": 250, "notes": "Plastic spool"},
+  {"brand": "Prusament", "model": "PLA", "weight_g": 210, "notes": "Spool with cardboard sides"},
+  {"brand": "Sunlu", "model": "PLA", "weight_g": 250, "notes": "Plastic spool"},
+  {"brand": "Overture", "model": "PLA", "weight_g": 250, "notes": "Plastic spool"},
+  {"brand": "Generic", "model": "1kg plastic spool", "weight_g": 250, "notes": "Fallback estimate"}
+]
