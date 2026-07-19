@@ -31,7 +31,11 @@ export default function AmsPage() {
   const updateSlot = async (slot, spoolId) => {
     try {
       await api.ams.updateSlot(slot, { spool_id: spoolId ? Number(spoolId) : null });
-      setMessage(`Updated slot ${slot}`);
+      setMessage(
+        spoolId
+          ? `Slot ${slot} set — if RFID is present, that product is learned once for all future loads`
+          : `Cleared slot ${slot}`,
+      );
       load();
     } catch (err) {
       setError(err.message);
@@ -46,7 +50,11 @@ export default function AmsPage() {
       <div className="page-header">
         <div>
           <h1>AMS setup</h1>
-          <p>Map AMS slots 1–4 to inventory spools; Bambu RFID tags auto-link when detected. Live tray data needs local MQTT (printer IP + access code in Portainer).</p>
+          <p>
+            Map a slot once per <strong>filament product</strong> (e.g. PLA Basic Black) while RFID is visible —
+            the app remembers that RFID forever. Later loads of the same product auto-pick the open spool
+            (partially used; if all are new, any match). Non-RFID filament still needs manual slot picks.
+          </p>
         </div>
       </div>
 
@@ -66,9 +74,13 @@ export default function AmsPage() {
               <div className="muted">
                 MQTT: {tray.tray_type || '—'} {tray.tray_color ? `#${String(tray.tray_color).slice(0, 6)}` : ''}
               </div>
-              {tray.tag_uid && <div className="badge">RFID {tray.tag_uid.slice(-6)}</div>}
+              {tray.tag_uid ? (
+                <div className="badge">RFID product …{tray.tag_uid.slice(-6)}</div>
+              ) : (
+                <div className="muted">No RFID — manual mapping only</div>
+              )}
               <label>
-                Mapped spool
+                Teach / override spool
                 <select
                   value={slot.spool_id || slot.mapped_spool_id || ''}
                   onChange={(e) => updateSlot(slot.slot, e.target.value)}

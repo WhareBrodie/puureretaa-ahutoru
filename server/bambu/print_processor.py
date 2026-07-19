@@ -6,8 +6,9 @@ import logging
 from datetime import datetime, timezone
 from typing import Any
 
+from bambu.filament_rfid import lookup_filament, pick_active_spool
 from db import connect, deduct_spool_weight, set_sync_state
-from routes.ams import list_ams_slots, update_mqtt_tray_state
+from routes.ams import update_mqtt_tray_state
 
 logger = logging.getLogger("bambu.processor")
 
@@ -36,32 +37,48 @@ def resolve_spool_for_slot(
 ) -> int | None:
     mapping = conn.execute(
         """
-        SELECT spool_id, mqtt_tag_uid FROM ams_slot_mappings
+        SELECT spool_id, mqtt_tag_uid, mqtt_tray_info_idx
+        FROM ams_slot_mappings
         WHERE printer_id = ? AND slot = ?
         """,
         (printer_id, ams_slot),
     ).fetchone()
     if mapping and mapping["spool_id"]:
-        return mapping["spool_id"]
+        return int(mapping["spool_id"])
 
-    candidates = conn.execute(
-        """
-        SELECT id, material, color_hex FROM spools
-        WHERE material = ? OR ? IS NULL
-        ORDER BY updated_at DESC
-        """,
-        (material, material),
-    ).fetchall()
-    if not candidates:
-        return None
-    if len(candidates) == 1:
-        return candidates[0]["id"]
-    best = min(candidates, key=lambda row: _color_distance(color, row["color_hex"]))
-    if material and best["material"] != material:
-        return None
-    if _color_distance(color, best["color_hex"]) > 120:
-        return None
-    return best["id"]
+    product = lookup_filament(
+        conn,
+        tag_uid=mapping["mqtt_tag_uid"] if mapping else None,
+        tray_info_idx=mapping["mqtt_tray_info_idx"] if mapping else None,
+    )
+    if product:
+        spool_id = pick_active_spool(
+            conn,
+            product["brand"],
+            product["material"],
+            product["color_name"],
+        )
+        if spool_id:
+            return spool_id
+
+    if material:
+        candidates = conn.execute(
+            """
+            SELECT id, material, color_hex, brand, color_name FROM spools
+            WHERE material = ? AND COALESCE(remaining_g, 0) > 0
+            ORDER BY updated_at DESC
+            """,
+            (material.upper(),),
+        ).fetchall()
+        if len(candidates) == 1:
+            return int(candidates[0]["id"])
+        if candidates:
+            best = min(candidates, key=lambda row: _color_distance(color, row["color_hex"]))
+            if _color_distance(color, best["color_hex"]) <= 120:
+                active = pick_active_spool(conn, best["brand"], best["material"], best["color_name"])
+                if active:
+                    return active
+    return None
 
 
 def process_print_job(
@@ -175,17 +192,3 @@ def store_live_state(printer_state: dict[str, Any], trays: dict[str, Any]) -> No
         set_sync_state(conn, "live_ams_state", json.dumps(trays))
         for slot_str, tray in trays.items():
             update_mqtt_tray_state(1, int(slot_str), tray)
-
-            tag_uid = tray.get("tag_uid")
-            if tag_uid:
-                spool = conn.execute(
-                    "SELECT id FROM spools WHERE bambu_tag_uid = ?", (tag_uid,)
-                ).fetchone()
-                if spool:
-                    conn.execute(
-                        """
-                        UPDATE ams_slot_mappings SET spool_id = ?, updated_at = datetime('now')
-                        WHERE printer_id = 1 AND slot = ?
-                        """,
-                        (spool["id"], int(slot_str)),
-                    )

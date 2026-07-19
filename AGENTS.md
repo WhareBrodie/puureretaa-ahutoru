@@ -103,10 +103,11 @@ Copy the printed token into Portainer as `BAMBU_CLOUD_ACCESS_TOKEN`.
 
 Developer Mode on the printer is **not** required for cloud sync.
 
+Bambu RFID identifies **filament product** (all PLA Basic Black spools share one tag), not individual spools. Teach once by mapping an AMS slot while RFID is visible (`bambu_filament_rfid` table). Future loads auto-map using the active spool heuristic (partially-used spool; if all full, any match).
+
 ### Non-Bambu filament
 
-- Map AMS slots 1–4 to inventory spools in **AMS** page
-- Bambu RFID `tag_uid` auto-links Bambu spools when detected
+- Non-RFID loads still need manual slot mapping when swapped
 - Ambiguous prints land in **Review queue** (`/prints?review=1`) for manual spool assignment
 
 ## Environment variables

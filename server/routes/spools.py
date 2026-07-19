@@ -287,12 +287,23 @@ def get_spool_id_by_qr_code(qr_code_id: str) -> int | None:
 
 
 def link_bambu_tag(spool_id: int, tag_uid: str, tray_info_idx: str | None = None) -> dict[str, Any]:
+    """Learn Bambu RFID as a filament product identifier (shared across spools of same SKU)."""
+    from bambu.filament_rfid import learn_filament_rfid
+
     with connect() as conn:
-        conn.execute(
-            """
-            UPDATE spools SET bambu_tag_uid = ?, bambu_tray_info_idx = COALESCE(?, bambu_tray_info_idx),
-            updated_at = datetime('now') WHERE id = ?
-            """,
-            (tag_uid, tray_info_idx, spool_id),
+        spool = conn.execute(
+            "SELECT brand, material, color_name, color_hex FROM spools WHERE id = ?",
+            (spool_id,),
+        ).fetchone()
+        if not spool:
+            raise KeyError("spool not found")
+        learn_filament_rfid(
+            conn,
+            tag_uid=tag_uid,
+            tray_info_idx=tray_info_idx,
+            brand=spool["brand"],
+            material=spool["material"],
+            color_name=spool["color_name"],
+            color_hex=spool["color_hex"],
         )
     return get_spool(spool_id)
