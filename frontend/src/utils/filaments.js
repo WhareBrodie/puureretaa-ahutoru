@@ -13,6 +13,23 @@ export function isDepleted(spool) {
   return (spool.remaining_g ?? 0) <= 0;
 }
 
+/** Alphabetical by brand → material → colour; heavier spools first within the same filament. */
+export function compareSpoolsForSelect(a, b) {
+  for (const field of ['brand', 'material', 'color_name']) {
+    const cmp = (a[field] || '').localeCompare(b[field] || '', undefined, { sensitivity: 'base' });
+    if (cmp !== 0) return cmp;
+  }
+  const remA = a.remaining_g ?? 0;
+  const remB = b.remaining_g ?? 0;
+  if (remB !== remA) return remB - remA;
+  return (a.id ?? 0) - (b.id ?? 0);
+}
+
+export function formatSpoolSelectLabel(spool) {
+  const name = [spool.brand, spool.material, spool.color_name].filter(Boolean).join(' ');
+  return `${name} (${Math.round(spool.remaining_g ?? 0)}g)`;
+}
+
 export function groupSpoolsIntoFilaments(spools, { includeDepleted = false } = {}) {
   const stockByKey = new Map();
   for (const spool of spools) {

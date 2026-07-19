@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { api } from '../api';
-import { formatUsageG } from '../utils/filaments';
+import { compareSpoolsForSelect, formatSpoolSelectLabel, formatUsageG } from '../utils/filaments';
 
 export default function ReviewPrintModal({ printJob, spools, onClose, onSaved }) {
   const weightedUsages = (printJob.usages || []).filter((usage) => usage.used_g > 0);
@@ -52,9 +52,10 @@ export default function ReviewPrintModal({ printJob, spools, onClose, onSaved })
                 <option value="">Choose spool</option>
                 {spools
                   .filter((spool) => !usage.material || spool.material === usage.material)
+                  .sort(compareSpoolsForSelect)
                   .map((spool) => (
                     <option key={spool.id} value={spool.id}>
-                      {spool.brand} {spool.material} {spool.color_name || ''} ({Math.round(spool.remaining_g || 0)}g)
+                      {formatSpoolSelectLabel(spool)}
                     </option>
                   ))}
               </select>
