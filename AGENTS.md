@@ -48,7 +48,9 @@ Cloud-first sync (recommended setup):
 2. **Cloud MQTT** (same cloud credentials + serial) — live printer/AMS state via `us.mqtt.bambulab.com` (override with `BAMBU_MQTT_BROKER` for CN accounts)
 3. **Optional local MQTT/FTPS** (`BAMBU_PRINTER_IP`, optionally `BAMBU_LAN_ACCESS_CODE`) — lower-latency live state and gcode fallback for SD/local prints; works while the printer stays cloud-connected
 
-Print completion is imported primarily by **cloud task polling** (`SYNC_CLOUD_INTERVAL_S`, default 300s). MQTT finish events can import sooner when cloud task data is already available.
+Print completion is imported primarily by **cloud task polling** (`SYNC_CLOUD_INTERVAL_S`, default 300s). MQTT finish events can import sooner when cloud task data is already available. Cloud tasks are only imported when Bambu reports them **finished** (status 6 success or 7 failed) — not while still printing (status 2 “sent” or 5 printing, or `endTime` ≈ `startTime`). **Cancelled** cloud tasks are skipped; P1-series MQTT cancels (RUNNING → IDLE) are also skipped.
+
+**Prints → Delete** removes a print and restores any filament that print deducted back to linked spools.
 
 Fresh installs set a **sync baseline to now** (no history backfill). After a SpoolStock CSV import, use **Settings → Clear Bambu history and restore spool weights** once: it deletes auto-imported prints, **adds back filament those imports deducted**, blocks those Bambu task IDs permanently, and only syncs new prints going forward. Re-import your SpoolStock CSV if you need exact weights from the file rather than the calculated restore.
 

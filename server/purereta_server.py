@@ -328,6 +328,11 @@ class PureretaHandler(SimpleHTTPRequestHandler):
                 projects.delete_project(int(parts[2]))
                 self.end_json(200, {"ok": True})
                 return
+            if len(parts) == 3 and parts[0] == "api" and parts[1] == "prints":
+                qs = parse_qs(urlparse(self.path).query)
+                restore = qs.get("restore_weight", ["true"])[0].lower() not in {"0", "false", "no"}
+                self.end_json(200, prints.delete_print(int(parts[2]), restore_weight=restore))
+                return
             if parts and parts[0] == "api":
                 self.send_error(404)
                 return

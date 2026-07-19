@@ -286,7 +286,7 @@ class BambuMqttClient:
     def _handle_message(self, payload: dict[str, Any]) -> None:
         record_mqtt_diagnostics(payload)
         print_data = payload.get("print") or {}
-        gcode_state = print_data.get("gcode_state", self._last_state)
+        gcode_state = str(print_data.get("gcode_state", self._last_state) or "IDLE").upper()
 
         printer_state = {
             "gcode_state": gcode_state,
@@ -306,14 +306,33 @@ class BambuMqttClient:
         if self.on_state_update:
             self.on_state_update(printer_state, trays)
 
-        previous = self._last_state
+        previous = str(self._last_state or "IDLE").upper()
         self._last_state = gcode_state
         if previous in {"RUNNING", "PAUSE"} and gcode_state in {"FINISH", "FAILED"}:
             if self.on_print_complete:
+                mc = print_data.get("mc_percent")
+                if gcode_state == "FINISH":
+                    status = "completed"
+                    completion = float(mc if mc is not None else 100)
+                else:
+                    status = "failed"
+                    completion = float(mc if mc is not None else 0)
                 self.on_print_complete(
                     {
                         **printer_state,
-                        "status": "completed" if gcode_state == "FINISH" else "failed",
-                        "completion_percent": print_data.get("mc_percent") or 100,
+                        "status": status,
+                        "completion_percent": completion,
                     }
                 )
+        elif previous in {"RUNNING", "PAUSE"} and gcode_state == "IDLE":
+            # P1-series firmware often reports cancel/stop as IDLE rather than FAILED.
+            mc = print_data.get("mc_percent")
+            if mc is not None and float(mc) < 100:
+                if self.on_print_complete:
+                    self.on_print_complete(
+                        {
+                            **printer_state,
+                            "status": "cancelled",
+                            "completion_percent": float(mc),
+                        }
+                    )

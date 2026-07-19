@@ -99,6 +99,8 @@ export const api = {
     create: (body) => request('/prints', { method: 'POST', body: JSON.stringify(body) }),
     update: (id, body) => request(`/prints/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
     review: (id, body) => request(`/prints/${id}/review`, { method: 'POST', body: JSON.stringify(body) }),
+    remove: (id, restoreWeight = true) =>
+      request(`/prints/${id}?restore_weight=${restoreWeight ? 'true' : 'false'}`, { method: 'DELETE' }),
   },
   projects: {
     list: () => request('/projects'),

@@ -162,6 +162,7 @@ def process_print_job(
 
         scale = max(0.0, min(completion_percent, 100.0)) / 100.0
         deduct = should_deduct_auto_import(conn, ended_at=ended_at or now, source=source)
+        skip_deduct = status in {"cancelled", "failed"} and scale <= 0
         for usage in resolved_usages:
             conn.execute(
                 """
@@ -180,7 +181,7 @@ def process_print_job(
                     1 if usage.get("spool_id") else 0,
                 ),
             )
-            if usage.get("spool_id") and not needs_review and deduct:
+            if usage.get("spool_id") and not needs_review and deduct and not skip_deduct:
                 deduct_spool_weight(conn, usage["spool_id"], float(usage.get("used_g") or 0) * scale)
 
     logger.info(

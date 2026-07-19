@@ -242,3 +242,36 @@ def resolve_print_review_v2(print_id: int, data: dict[str, Any]) -> dict[str, An
             (1 if unresolved else 0, data.get("review_note"), print_id),
         )
     return get_print(print_id)
+
+
+def delete_print(print_id: int, restore_weight: bool = True) -> dict[str, Any]:
+    with connect() as conn:
+        job = conn.execute("SELECT * FROM print_jobs WHERE id = ?", (print_id,)).fetchone()
+        if not job:
+            raise KeyError("print not found")
+
+        restored_g = 0.0
+        if restore_weight:
+            usages = conn.execute(
+                "SELECT * FROM print_usages WHERE print_job_id = ?",
+                (print_id,),
+            ).fetchall()
+            scale = (job["completion_percent"] or 100) / 100.0
+            for usage in usages:
+                if not usage["spool_id"] or usage["used_g"] <= 0:
+                    continue
+                grams = float(usage["used_g"]) * scale
+                conn.execute(
+                    """
+                    UPDATE spools
+                    SET remaining_g = COALESCE(remaining_g, 0) + ?,
+                        updated_at = datetime('now')
+                    WHERE id = ?
+                    """,
+                    (grams, usage["spool_id"]),
+                )
+                restored_g += grams
+
+        conn.execute("DELETE FROM print_jobs WHERE id = ?", (print_id,))
+
+    return {"ok": True, "restored_g": round(restored_g, 2)}

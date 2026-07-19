@@ -13,7 +13,12 @@ SERVER_DIR = Path(__file__).resolve().parent.parent
 if str(SERVER_DIR) not in sys.path:
     sys.path.insert(0, str(SERVER_DIR))
 
-from bambu.cloud_sync import BambuCloudClient
+from bambu.cloud_sync import (
+    BambuCloudClient,
+    normalize_cloud_task_status,
+    task_completion_percent,
+    task_is_importable,
+)
 from bambu.ftps_gcode import BambuFtpsClient, parse_filament_usage
 from bambu.mqtt_client import BambuMqttClient
 from bambu.print_processor import process_print_job, store_live_state
@@ -55,10 +60,17 @@ class SyncWorker:
             bambu_task_id = None
 
         if not usages and event.get("gcode_file") and self.ftps.is_configured():
+            event_status = event.get("status") or "completed"
+            default_completion = 100.0 if event_status == "completed" else float(event.get("completion_percent") or 0)
             gcode = self.ftps.resolve_gcode_content(event["gcode_file"])
             if gcode:
-                usages = parse_filament_usage(gcode, float(event.get("completion_percent") or 100))
+                usages = parse_filament_usage(gcode, default_completion)
                 source = "ftps"
+
+        event_status = event.get("status") or "completed"
+        if event_status == "cancelled":
+            logger.info("Skipping cancelled MQTT print %s", event.get("gcode_file"))
+            return
 
         if not usages:
             logger.info("No filament usage data yet for %s; cloud poll will retry", event.get("gcode_file"))
@@ -74,31 +86,38 @@ class SyncWorker:
             if existing:
                 return
 
+        completion = float(event.get("completion_percent") if event.get("completion_percent") is not None else 100)
+        if event_status == "failed":
+            completion = float(event.get("completion_percent") or 0)
+
         result = process_print_job(
             title=event.get("subtask_name") or event.get("gcode_file"),
             started_at=None,
             ended_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             duration_s=None,
-            status=event.get("status") or "completed",
+            status=event_status,
             source=source,
             bambu_task_id=bambu_task_id,
             gcode_file=event.get("gcode_file"),
-            completion_percent=float(event.get("completion_percent") or 100),
+            completion_percent=completion,
             usages=usages,
         )
         if result.get("ignored"):
             logger.info("Skipped MQTT print import for task %s", bambu_task_id or event.get("gcode_file"))
 
     def _find_matching_cloud_task(self, event: dict) -> dict | None:
-        tasks = self.cloud.fetch_tasks(limit=5)
+        tasks = self.cloud.fetch_tasks(limit=10)
         filename = (event.get("gcode_file") or "").lower()
         for task in tasks:
+            if not task_is_importable(task):
+                continue
             title = (task.get("title") or "").lower()
             task_id = str(task.get("id") or task.get("taskId") or "")
             if filename and filename in title:
-                detail = self.cloud.fetch_task_detail(task_id)
-                return detail or task
-        return tasks[0] if tasks else None
+                detail = self.cloud.fetch_task_detail(task_id) or task
+                if task_is_importable(detail):
+                    return detail
+        return None
 
     def poll_cloud_tasks(self) -> None:
         if not self.cloud.is_configured():
@@ -109,9 +128,19 @@ class SyncWorker:
         if not tasks:
             return
 
+        cursor: str | None = None
         for task in reversed(tasks):
             task_id = str(task.get("id") or task.get("taskId") or "")
             if not task_id:
+                continue
+            detail = self.cloud.fetch_task_detail(task_id) or task
+            if not task_is_importable(detail):
+                continue
+            normalized_status = normalize_cloud_task_status(detail)
+            if not normalized_status:
+                continue
+            if normalized_status == "cancelled":
+                logger.info("Skipping cancelled cloud task %s", task_id)
                 continue
             with connect() as conn:
                 if is_bambu_task_ignored(conn, task_id):
@@ -121,7 +150,6 @@ class SyncWorker:
                 ).fetchone()
             if existing:
                 continue
-            detail = self.cloud.fetch_task_detail(task_id) or task
             ended_at = task_timestamp(detail) or task_timestamp(task)
             with connect() as conn:
                 if is_before_baseline(conn, ended_at):
@@ -129,23 +157,29 @@ class SyncWorker:
             usages = self.cloud.extract_filament_usages(detail)
             if not usages:
                 continue
+            completion = task_completion_percent(detail, normalized_status)
             result = process_print_job(
                 title=detail.get("title") or "Cloud print",
                 started_at=detail.get("startTime"),
                 ended_at=detail.get("endTime"),
                 duration_s=detail.get("costTime"),
-                status="completed",
+                status=normalized_status,
                 source="cloud",
                 bambu_task_id=task_id,
                 gcode_file=None,
-                completion_percent=100,
+                completion_percent=completion,
                 usages=usages,
             )
             if result.get("ignored"):
                 logger.info("Skipped cloud task %s (ignored or before baseline)", task_id)
 
-        newest = tasks[0]
-        cursor = newest.get("endTime") or newest.get("startTime")
+        for task in tasks:
+            detail = self.cloud.fetch_task_detail(str(task.get("id") or task.get("taskId") or "")) or task
+            if not task_is_importable(detail):
+                continue
+            cursor = task_timestamp(detail) or task_timestamp(task)
+            if cursor:
+                break
         if cursor:
             with connect() as conn:
                 set_sync_state(conn, "cloud_tasks_after", cursor)

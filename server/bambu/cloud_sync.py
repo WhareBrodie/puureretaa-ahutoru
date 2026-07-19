@@ -4,11 +4,83 @@ from __future__ import annotations
 
 import logging
 import os
+from datetime import datetime
 from typing import Any
 
 import requests
 
 logger = logging.getLogger("bambu.cloud")
+
+# Bambu Studio TaskState enum (numeric status on /my/tasks hits).
+TASK_STATUS_PRINT_SUCCESS = 6
+TASK_STATUS_PRINT_FAILED = 7
+TASK_STATUS_SEND_CANCELED = 3
+TASK_STATUS_SEND_FAILED = 4
+
+
+def _parse_iso8601(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def task_is_still_printing(task: dict[str, Any]) -> bool:
+    """OpenBambuAPI: endTime within ~1 minute of startTime means actively printing."""
+    start = _parse_iso8601(task.get("startTime") or task.get("start_time"))
+    end = _parse_iso8601(task.get("endTime") or task.get("end_time"))
+    if not start or not end:
+        return False
+    return (end - start).total_seconds() < 90
+
+
+def normalize_cloud_task_status(task: dict[str, Any]) -> str | None:
+    """Return completed/failed/cancelled, or None if the task is not finished yet."""
+    raw = task.get("status")
+    if raw is None:
+        return None
+    if isinstance(raw, int):
+        if raw == TASK_STATUS_PRINT_SUCCESS:
+            return "completed"
+        if raw == TASK_STATUS_PRINT_FAILED:
+            return "failed"
+        if raw in (TASK_STATUS_SEND_CANCELED, TASK_STATUS_SEND_FAILED):
+            return "cancelled"
+        return None
+    token = str(raw).strip().lower()
+    if token in {"6", "completed", "success", "print_success"}:
+        return "completed"
+    if token in {"7", "failed", "print_failed"}:
+        return "failed"
+    if token in {"3", "4", "cancelled", "canceled", "send_canceled", "send_failed"}:
+        return "cancelled"
+    return None
+
+
+def task_is_importable(task: dict[str, Any]) -> bool:
+    status = normalize_cloud_task_status(task)
+    if status is None:
+        return False
+    if task_is_still_printing(task):
+        return False
+    return True
+
+
+def task_completion_percent(task: dict[str, Any], normalized_status: str) -> float:
+    if normalized_status == "completed":
+        return 100.0
+    if normalized_status == "cancelled":
+        return 0.0
+    for key in ("progress", "mc_percent", "completion_percent", "mcPercent"):
+        value = task.get(key)
+        if value is not None:
+            try:
+                return max(0.0, min(float(value), 100.0))
+            except (TypeError, ValueError):
+                continue
+    return 0.0
 
 API_BASE = "https://api.bambulab.com"
 DEFAULT_MQTT_BROKER = "us.mqtt.bambulab.com"

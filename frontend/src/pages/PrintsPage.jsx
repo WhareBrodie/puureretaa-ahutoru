@@ -27,6 +27,18 @@ export default function PrintsPage() {
 
   useEffect(load, [reviewOnly]);
 
+  const handleDelete = async (print) => {
+    if (!window.confirm(`Delete "${print.title}"? Filament deducted for this print will be restored to linked spools.`)) {
+      return;
+    }
+    try {
+      await api.prints.remove(print.id, true);
+      load();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
   return (
     <>
       <div className="page-header">
@@ -75,6 +87,7 @@ export default function PrintsPage() {
                     {print.needs_review && (
                       <button className="secondary" onClick={() => setReviewPrint(print)}>Review</button>
                     )}
+                    <button type="button" className="secondary danger-text" onClick={() => handleDelete(print)}>Delete</button>
                   </div>
                 </td>
               </tr>
