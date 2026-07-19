@@ -17,7 +17,7 @@ Filament inventory and print tracking for a Bambu Lab P1S with full AMS, inspire
 
 | Context | URL |
 |---------|-----|
-| Production (browser) | `http://pūreretā-ahutoru.internal` (Traefik punycode: `xn--preret-ahutoru-qub40o.internal`) |
+| Production (browser) | `http://pūreretā-ahutoru.internal` or `http://xn--preret-ahutoru-qub40o.internal` (equivalent; Traefik accepts both) |
 | Container | `http://purereta-ahutoru:80` |
 | Native Mac dev | `http://localhost:5173` (Vite; proxies `/api` → `:8080`) |
 
