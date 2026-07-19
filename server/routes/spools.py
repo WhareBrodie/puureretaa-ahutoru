@@ -262,7 +262,7 @@ def lookup_empty_spool_weights(brand: str | None = None, model: str | None = Non
 def find_spool_by_bambu_tag(tag_uid: str) -> dict[str, Any] | None:
     with connect() as conn:
         row = conn.execute(
-            _spool_query("WHERE s.bambu_tag_uid = ?", (tag_uid,)),
+            _spool_query("WHERE s.bambu_tag_uid = ?"),
             (tag_uid,),
         ).fetchone()
         return row_to_dict(row) if row else None
