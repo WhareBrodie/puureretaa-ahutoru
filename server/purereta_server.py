@@ -19,7 +19,7 @@ if str(SERVER_DIR) not in sys.path:
     sys.path.insert(0, str(SERVER_DIR))
 
 from db import get_data_dir, get_root, init_db
-from routes import ams, csv_io, dashboard, locations, prints, settings, spools
+from routes import ams, csv_io, dashboard, locations, prints, projects, settings, spools
 
 ROOT = get_root()
 DIST = ROOT / "dist"
@@ -135,6 +135,13 @@ class PureretaHandler(SimpleHTTPRequestHandler):
                 self.end_json(200, prints.get_print(int(parts[2])))
                 return
 
+            if parts == ["api", "projects"]:
+                self.end_json(200, {"projects": projects.list_projects()})
+                return
+            if len(parts) == 3 and parts[0] == "api" and parts[1] == "projects" and parts[2].isdigit():
+                self.end_json(200, projects.get_project(int(parts[2])))
+                return
+
             if parts == ["api", "ams", "slots"]:
                 self.end_json(200, {"slots": ams.list_ams_slots()})
                 return
@@ -218,6 +225,10 @@ class PureretaHandler(SimpleHTTPRequestHandler):
                 self.end_json(201, prints.create_manual_print(self.read_json_body()))
                 return
 
+            if parts == ["api", "projects"]:
+                self.end_json(201, projects.create_project(self.read_json_body()))
+                return
+
             if len(parts) == 4 and parts[0] == "api" and parts[1] == "prints" and parts[3] == "review":
                 self.end_json(200, prints.resolve_print_review_v2(int(parts[2]), self.read_json_body()))
                 return
@@ -252,6 +263,12 @@ class PureretaHandler(SimpleHTTPRequestHandler):
             if len(parts) == 3 and parts[0] == "api" and parts[1] == "spools":
                 self.end_json(200, spools.update_spool(int(parts[2]), self.read_json_body()))
                 return
+            if len(parts) == 3 and parts[0] == "api" and parts[1] == "prints":
+                self.end_json(200, prints.update_print(int(parts[2]), self.read_json_body()))
+                return
+            if len(parts) == 3 and parts[0] == "api" and parts[1] == "projects":
+                self.end_json(200, projects.update_project(int(parts[2]), self.read_json_body()))
+                return
             if len(parts) == 4 and parts[0] == "api" and parts[1] == "ams" and parts[2] == "slots":
                 self.end_json(200, ams.update_ams_slot(int(parts[3]), self.read_json_body()))
                 return
@@ -278,6 +295,10 @@ class PureretaHandler(SimpleHTTPRequestHandler):
                 return
             if len(parts) == 3 and parts[0] == "api" and parts[1] == "spools":
                 spools.delete_spool(int(parts[2]))
+                self.end_json(200, {"ok": True})
+                return
+            if len(parts) == 3 and parts[0] == "api" and parts[1] == "projects":
+                projects.delete_project(int(parts[2]))
                 self.end_json(200, {"ok": True})
                 return
             if parts and parts[0] == "api":

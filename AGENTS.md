@@ -134,14 +134,18 @@ frontend/                 Vite + React SPA
     FilamentDetailPage.jsx  Aggregated view + individual spools for a filament
     InventoryPage.jsx     Spools grouped by storage location
     SpoolDetailPage.jsx   Single spool: photo, purchase cost, scale, drying, usage history
+    PrintsPage.jsx        Print log + review queue
+    ProjectsPage.jsx      Project list with print count and total cost
+    ProjectDetailPage.jsx Project detail with assigned prints
 server/
   purereta_server.py      Static files + /api/*
   db.py                   SQLite + migrations
-  routes/                 spools, prints, ams, dashboard, settings, csv_io
+  routes/                 spools, prints, projects, ams, dashboard, settings, csv_io
   bambu/                  mqtt_client, cloud_sync, ftps_gcode, print_processor, sync_worker
   entrypoint.sh           Init DB + start sync worker + API
 data/
   migrations/001_init.sql
+  migrations/002_projects.sql
   seed_empty_spool_weights.json
 Dockerfile                Multi-stage: npm build → Python Alpine
 docker-compose.yml        Production — Traefik labels, host volume, no ports
@@ -168,7 +172,8 @@ docker compose -f docker-compose.yml -f docker-compose.local.yml up --build
 
 - `GET /api/dashboard`, `/api/stats`, `/api/alerts`
 - `GET/POST/PUT/DELETE /api/spools`, `/api/locations`
-- `GET/POST /api/prints`, `POST /api/prints/:id/review`
+- `GET/POST /api/prints`, `PUT /api/prints/:id`, `POST /api/prints/:id/review` — optional `project_id` on create/update
+- `GET/POST/PUT/DELETE /api/projects` — grouped prints with aggregated filament cost
 - `GET/PUT /api/ams/slots`, `GET /api/ams/live`
 - `GET /api/export/csv`, `POST /api/import/csv` — native export or **SpoolStock export** import (auto-detected). SpoolStock re-import matches by `short_id` and preserves fields not in the CSV (e.g. `location_id`).
 - `GET/PUT /api/settings`

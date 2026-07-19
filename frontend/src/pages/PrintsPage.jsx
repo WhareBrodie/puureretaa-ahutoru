@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { api, formatDate } from '../api';
 import { formatMoney } from '../utils/filaments';
 import ManualPrintModal from '../components/ManualPrintModal';
 import ReviewPrintModal from '../components/ReviewPrintModal';
+import EditPrintModal from '../components/EditPrintModal';
 
 export default function PrintsPage() {
   const [searchParams] = useSearchParams();
@@ -12,6 +13,7 @@ export default function PrintsPage() {
   const [spools, setSpools] = useState([]);
   const [showManual, setShowManual] = useState(false);
   const [reviewPrint, setReviewPrint] = useState(null);
+  const [editPrint, setEditPrint] = useState(null);
   const [error, setError] = useState('');
 
   const load = () => {
@@ -42,6 +44,7 @@ export default function PrintsPage() {
           <thead>
             <tr>
               <th>Title</th>
+              <th>Project</th>
               <th>Source</th>
               <th>Status</th>
               <th>Used</th>
@@ -54,6 +57,11 @@ export default function PrintsPage() {
             {prints.map((print) => (
               <tr key={print.id}>
                 <td>{print.title}</td>
+                <td>
+                  {print.project_id ? (
+                    <Link to={`/prints/projects/${print.project_id}`}>{print.project_name}</Link>
+                  ) : '—'}
+                </td>
                 <td>{print.source}</td>
                 <td>
                   {print.needs_review ? <span className="badge warning">Needs review</span> : print.status}
@@ -62,9 +70,12 @@ export default function PrintsPage() {
                 <td>{print.total_cost != null ? formatMoney(print.total_cost) : '—'}</td>
                 <td>{formatDate(print.started_at || print.created_at)}</td>
                 <td>
-                  {print.needs_review && (
-                    <button className="secondary" onClick={() => setReviewPrint(print)}>Review</button>
-                  )}
+                  <div className="toolbar" style={{ justifyContent: 'flex-end' }}>
+                    <button className="secondary" onClick={() => setEditPrint(print)}>Edit</button>
+                    {print.needs_review && (
+                      <button className="secondary" onClick={() => setReviewPrint(print)}>Review</button>
+                    )}
+                  </div>
                 </td>
               </tr>
             ))}
@@ -91,6 +102,17 @@ export default function PrintsPage() {
           onClose={() => setReviewPrint(null)}
           onSaved={() => {
             setReviewPrint(null);
+            load();
+          }}
+        />
+      )}
+
+      {editPrint && (
+        <EditPrintModal
+          printJob={editPrint}
+          onClose={() => setEditPrint(null)}
+          onSaved={() => {
+            setEditPrint(null);
             load();
           }}
         />

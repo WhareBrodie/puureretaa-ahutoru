@@ -10,9 +10,10 @@ from db import connect, deduct_spool_weight, row_to_dict, rows_to_dicts
 
 def _print_query(where: str = "", params: tuple[Any, ...] = ()) -> str:
     return f"""
-        SELECT pj.*, p.name AS printer_name
+        SELECT pj.*, p.name AS printer_name, pr.name AS project_name
         FROM print_jobs pj
         LEFT JOIN printers p ON p.id = pj.printer_id
+        LEFT JOIN projects pr ON pr.id = pj.project_id
         {where}
         ORDER BY COALESCE(pj.started_at, pj.created_at) DESC
     """
@@ -85,8 +86,8 @@ def create_manual_print(data: dict[str, Any]) -> dict[str, Any]:
             """
             INSERT INTO print_jobs (
                 title, started_at, ended_at, duration_s, status, source, printer_id,
-                needs_review, total_used_g, completion_percent
-            ) VALUES (?, ?, ?, ?, 'completed', 'manual', ?, 0, ?, 100)
+                needs_review, total_used_g, completion_percent, project_id
+            ) VALUES (?, ?, ?, ?, 'completed', 'manual', ?, 0, ?, 100, ?)
             """,
             (
                 title,
@@ -95,6 +96,7 @@ def create_manual_print(data: dict[str, Any]) -> dict[str, Any]:
                 duration_s,
                 data.get("printer_id") or 1,
                 total_used,
+                data.get("project_id"),
             ),
         )
         print_id = cur.lastrowid
@@ -120,6 +122,45 @@ def create_manual_print(data: dict[str, Any]) -> dict[str, Any]:
             )
             if spool_id and used_g > 0:
                 deduct_spool_weight(conn, spool_id, used_g)
+    return get_print(print_id)
+
+
+def update_print(print_id: int, data: dict[str, Any]) -> dict[str, Any]:
+    with connect() as conn:
+        row = conn.execute("SELECT id FROM print_jobs WHERE id = ?", (print_id,)).fetchone()
+        if not row:
+            raise KeyError("print not found")
+
+        updates: list[str] = []
+        params: list[Any] = []
+
+        if "title" in data:
+            title = (data.get("title") or "").strip()
+            if not title:
+                raise ValueError("print title is required")
+            updates.append("title = ?")
+            params.append(title)
+
+        if "project_id" in data:
+            project_id = data.get("project_id")
+            if project_id in (None, "", 0, "0"):
+                project_id = None
+            else:
+                project_id = int(project_id)
+                exists = conn.execute("SELECT id FROM projects WHERE id = ?", (project_id,)).fetchone()
+                if not exists:
+                    raise ValueError("project not found")
+            updates.append("project_id = ?")
+            params.append(project_id)
+
+        if not updates:
+            return get_print(print_id)
+
+        params.append(print_id)
+        conn.execute(
+            f"UPDATE print_jobs SET {', '.join(updates)} WHERE id = ?",
+            tuple(params),
+        )
     return get_print(print_id)
 
 

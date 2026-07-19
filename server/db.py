@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 def get_root() -> Path:
@@ -65,6 +66,17 @@ def run_migrations(root: Path | None = None) -> None:
             for migration_file in sorted(migrations_dir.glob("*.sql")):
                 sql = migration_file.read_text(encoding="utf-8")
                 conn.executescript(sql)
+            return
+
+        version_row = conn.execute("SELECT MAX(version) AS v FROM schema_version").fetchone()
+        current_version = version_row["v"] if version_row else 0
+        for migration_file in sorted(migrations_dir.glob("*.sql")):
+            match = re.match(r"^(\d+)_", migration_file.name)
+            if not match:
+                continue
+            file_version = int(match.group(1))
+            if file_version > current_version:
+                conn.executescript(migration_file.read_text(encoding="utf-8"))
 
 
 def seed_empty_spool_weights(root: Path | None = None) -> None:

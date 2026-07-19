@@ -1,11 +1,19 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { api } from '../api';
 
 export default function ManualPrintModal({ spools, onClose, onSaved }) {
   const [title, setTitle] = useState('');
   const [duration, setDuration] = useState('');
+  const [projectId, setProjectId] = useState('');
+  const [projects, setProjects] = useState([]);
   const [lines, setLines] = useState([{ spool_id: '', used_g: '', material: '', ams_slot: 1 }]);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    api.projects.list()
+      .then((data) => setProjects(data.projects || []))
+      .catch((err) => setError(err.message));
+  }, []);
 
   const updateLine = (index, key, value) => {
     setLines((prev) => prev.map((line, i) => (i === index ? { ...line, [key]: value } : line)));
@@ -17,6 +25,7 @@ export default function ManualPrintModal({ spools, onClose, onSaved }) {
       await api.prints.create({
         title,
         duration_s: duration ? Number(duration) : null,
+        project_id: projectId ? Number(projectId) : null,
         usages: lines.map((line) => ({
           spool_id: line.spool_id ? Number(line.spool_id) : null,
           used_g: Number(line.used_g || 0),
@@ -36,6 +45,15 @@ export default function ManualPrintModal({ spools, onClose, onSaved }) {
         <h2>Log manual print</h2>
         {error && <div className="danger">{error}</div>}
         <label>Title<input value={title} onChange={(e) => setTitle(e.target.value)} required /></label>
+        <label>
+          Project
+          <select value={projectId} onChange={(e) => setProjectId(e.target.value)}>
+            <option value="">No project</option>
+            {projects.map((project) => (
+              <option key={project.id} value={project.id}>{project.name}</option>
+            ))}
+          </select>
+        </label>
         <label>Duration (seconds)<input type="number" value={duration} onChange={(e) => setDuration(e.target.value)} /></label>
         {lines.map((line, index) => (
           <div key={index} className="form-grid two">

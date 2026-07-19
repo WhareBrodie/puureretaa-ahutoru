@@ -83,7 +83,15 @@ export const api = {
       request(`/prints${pendingReview ? '?pending_review=true' : ''}`),
     get: (id) => request(`/prints/${id}`),
     create: (body) => request('/prints', { method: 'POST', body: JSON.stringify(body) }),
+    update: (id, body) => request(`/prints/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
     review: (id, body) => request(`/prints/${id}/review`, { method: 'POST', body: JSON.stringify(body) }),
+  },
+  projects: {
+    list: () => request('/projects'),
+    get: (id) => request(`/projects/${id}`),
+    create: (body) => request('/projects', { method: 'POST', body: JSON.stringify(body) }),
+    update: (id, body) => request(`/projects/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+    remove: (id) => request(`/projects/${id}`, { method: 'DELETE' }),
   },
   ams: {
     slots: () => request('/ams/slots'),
