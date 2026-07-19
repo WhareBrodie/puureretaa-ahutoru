@@ -52,6 +52,8 @@ Print completion is imported primarily by **cloud task polling** (`SYNC_CLOUD_IN
 
 **Prints → Delete** removes a print and restores any filament that print deducted back to linked spools.
 
+Print usage is always rounded **up** to one decimal place for display and spool deduction (e.g. 11.61 g → 11.7 g).
+
 Fresh installs set a **sync baseline to now** (no history backfill). After a SpoolStock CSV import, use **Settings → Clear Bambu history and restore spool weights** once: it deletes auto-imported prints, **adds back filament those imports deducted**, blocks those Bambu task IDs permanently, and only syncs new prints going forward. Re-import your SpoolStock CSV if you need exact weights from the file rather than the calculated restore.
 
 Set `BAMBU_SYNC_DEDUCT_FILAMENT=false` in Portainer to log auto-imported prints without changing spool weights (manual prints still deduct).

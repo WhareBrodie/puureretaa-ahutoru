@@ -6,7 +6,7 @@ import os
 from datetime import datetime, timezone
 from typing import Any
 
-from db import connect, get_sync_state, set_sync_state
+from db import connect, get_sync_state, scaled_deduction_g, set_sync_state
 
 AUTO_IMPORT_SOURCES = ("cloud", "mqtt", "ftps")
 
@@ -106,8 +106,7 @@ def restore_auto_import_deductions(conn) -> tuple[int, float]:
     for row in rows:
         if not should_deduct_auto_import(conn, ended_at=row["ended_at"], source=row["source"]):
             continue
-        scale = (row["completion_percent"] or 100) / 100.0
-        grams = float(row["used_g"]) * scale
+        grams = scaled_deduction_g(row["used_g"], row["completion_percent"])
         spool_id = int(row["spool_id"])
         restored_by_spool[spool_id] = restored_by_spool.get(spool_id, 0.0) + grams
 

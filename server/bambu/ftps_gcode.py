@@ -11,6 +11,8 @@ import zipfile
 from ftplib import FTP_TLS
 from typing import TYPE_CHECKING, Any
 
+from db import ceil_usage_g
+
 if TYPE_CHECKING:
     from bambu.cloud_sync import BambuCloudClient
 
@@ -108,7 +110,7 @@ def parse_filament_usage(gcode: str, completion_percent: float = 100) -> list[di
                 "ams_slot": len(usages) + 1,
                 "material": match.group("type").upper(),
                 "color": None,
-                "used_g": round(float(match.group("used")) * scale, 2),
+                "used_g": ceil_usage_g(float(match.group("used")) * scale),
                 "used_m": None,
             }
         )
@@ -121,7 +123,7 @@ def parse_filament_usage(gcode: str, completion_percent: float = 100) -> list[di
                     "ams_slot": 1,
                     "material": "UNKNOWN",
                     "color": None,
-                    "used_g": round(float(total.group("used")) * scale, 2),
+                    "used_g": ceil_usage_g(float(total.group("used")) * scale),
                     "used_m": None,
                 }
             )

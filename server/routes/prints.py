@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-from db import connect, deduct_spool_weight, row_to_dict, rows_to_dicts
+from db import connect, ceil_usage_g, deduct_spool_weight, row_to_dict, rows_to_dicts, scaled_deduction_g
 
 
 def _print_query(where: str = "", params: tuple[Any, ...] = ()) -> str:
@@ -102,7 +102,7 @@ def create_manual_print(data: dict[str, Any]) -> dict[str, Any]:
         print_id = cur.lastrowid
         for usage in usages:
             spool_id = usage.get("spool_id")
-            used_g = float(usage.get("used_g") or 0)
+            used_g = ceil_usage_g(float(usage.get("used_g") or 0))
             conn.execute(
                 """
                 INSERT INTO print_usages (
@@ -188,8 +188,11 @@ def resolve_print_review(print_id: int, assignments: list[dict[str, Any]], skip_
                 (spool_id, 1 if spool_id else 0, usage_id),
             )
             if spool_id and not skip_deduction and usage["used_g"] > 0:
-                scale = (job["completion_percent"] or 100) / 100.0
-                deduct_spool_weight(conn, spool_id, usage["used_g"] * scale)
+                deduct_spool_weight(
+                    conn,
+                    spool_id,
+                    scaled_deduction_g(usage["used_g"], job["completion_percent"]),
+                )
 
         unresolved = conn.execute(
             "SELECT COUNT(*) AS c FROM print_usages WHERE print_job_id = ? AND (spool_id IS NULL OR resolved = 0)",
@@ -228,8 +231,11 @@ def resolve_print_review_v2(print_id: int, data: dict[str, Any]) -> dict[str, An
                 (spool_id, 1 if spool_id else 0, usage_id),
             )
             if spool_id and not skip and usage["used_g"] > 0:
-                scale = (job["completion_percent"] or 100) / 100.0
-                deduct_spool_weight(conn, spool_id, usage["used_g"] * scale)
+                deduct_spool_weight(
+                    conn,
+                    spool_id,
+                    scaled_deduction_g(usage["used_g"], job["completion_percent"]),
+                )
 
         unresolved = conn.execute(
             "SELECT COUNT(*) AS c FROM print_usages WHERE print_job_id = ? AND spool_id IS NULL",
@@ -256,11 +262,10 @@ def delete_print(print_id: int, restore_weight: bool = True) -> dict[str, Any]:
                 "SELECT * FROM print_usages WHERE print_job_id = ?",
                 (print_id,),
             ).fetchall()
-            scale = (job["completion_percent"] or 100) / 100.0
             for usage in usages:
                 if not usage["spool_id"] or usage["used_g"] <= 0:
                     continue
-                grams = float(usage["used_g"]) * scale
+                grams = scaled_deduction_g(usage["used_g"], job["completion_percent"])
                 conn.execute(
                     """
                     UPDATE spools

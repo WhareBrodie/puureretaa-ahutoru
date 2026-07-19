@@ -97,6 +97,11 @@ export function groupSpoolsIntoFilaments(spools, { includeDepleted = false } = {
     });
 }
 
+export function formatUsageG(g) {
+  if (g == null || Number.isNaN(g)) return '—';
+  return `${Number(g).toFixed(1)}g`;
+}
+
 export function formatWeight(g) {
   if (g == null || Number.isNaN(g)) return '—';
   if (g >= 1000) return `${(g / 1000).toFixed(2)} kg`;

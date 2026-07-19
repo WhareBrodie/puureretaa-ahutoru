@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api, colorStyle, daysSince, formatDate, photoUrl } from '../api';
 import SpoolFormModal from '../components/SpoolFormModal';
-import { formatMoney, usageCost } from '../utils/filaments';
+import { formatMoney, formatUsageG, usageCost } from '../utils/filaments';
 
 export default function SpoolDetailPage() {
   const { id } = useParams();
@@ -149,7 +149,7 @@ export default function SpoolDetailPage() {
                     return (
                       <tr key={usage.id}>
                         <td>{usage.title}</td>
-                        <td>{Math.round(usage.used_g || 0)}g</td>
+                        <td>{formatUsageG(usage.used_g)}</td>
                         <td>{cost != null ? formatMoney(cost) : '—'}</td>
                         <td>{formatDate(usage.started_at)}</td>
                       </tr>

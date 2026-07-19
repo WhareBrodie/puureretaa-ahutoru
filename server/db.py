@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import sqlite3
@@ -146,7 +147,22 @@ def touch_spool_updated(conn: sqlite3.Connection, spool_id: int) -> None:
     )
 
 
+def ceil_usage_g(grams: float) -> float:
+    """Round filament usage up to one decimal place (e.g. 11.61 → 11.7)."""
+    if grams <= 0:
+        return 0.0
+    return math.ceil(grams * 10) / 10
+
+
+def scaled_deduction_g(used_g: float, completion_percent: float | None) -> float:
+    scale = max(0.0, min(completion_percent or 100.0, 100.0)) / 100.0
+    return ceil_usage_g(float(used_g) * scale)
+
+
 def deduct_spool_weight(conn: sqlite3.Connection, spool_id: int, grams: float) -> None:
+    grams = ceil_usage_g(grams)
+    if grams <= 0:
+        return
     conn.execute(
         """
         UPDATE spools

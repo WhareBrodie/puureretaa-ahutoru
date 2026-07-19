@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { api, formatDate } from '../api';
-import { formatMoney } from '../utils/filaments';
+import { formatMoney, formatUsageG } from '../utils/filaments';
 import ManualPrintModal from '../components/ManualPrintModal';
 import ReviewPrintModal from '../components/ReviewPrintModal';
 import EditPrintModal from '../components/EditPrintModal';
@@ -78,7 +78,7 @@ export default function PrintsPage() {
                 <td>
                   {print.needs_review ? <span className="badge warning">Needs review</span> : print.status}
                 </td>
-                <td>{Math.round(print.total_used_g || 0)}g</td>
+                <td>{formatUsageG(print.total_used_g)}</td>
                 <td>{print.total_cost != null ? formatMoney(print.total_cost) : '—'}</td>
                 <td>{formatDate(print.started_at || print.created_at)}</td>
                 <td>

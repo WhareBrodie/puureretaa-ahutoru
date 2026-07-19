@@ -12,7 +12,7 @@ from bambu.task_guard import (
     is_bambu_task_ignored,
     should_deduct_auto_import,
 )
-from db import connect, deduct_spool_weight, set_sync_state
+from db import connect, ceil_usage_g, deduct_spool_weight, scaled_deduction_g, set_sync_state
 
 logger = logging.getLogger("bambu.processor")
 
@@ -130,6 +130,7 @@ def process_print_job(
                 "ams_slot": slot,
                 "spool_id": spool_id,
                 "resolved": bool(spool_id),
+                "used_g": ceil_usage_g(float(usage.get("used_g") or 0)),
             }
             if not spool_id:
                 needs_review = True
@@ -182,7 +183,11 @@ def process_print_job(
                 ),
             )
             if usage.get("spool_id") and not needs_review and deduct and not skip_deduct:
-                deduct_spool_weight(conn, usage["spool_id"], float(usage.get("used_g") or 0) * scale)
+                deduct_spool_weight(
+                    conn,
+                    usage["spool_id"],
+                    scaled_deduction_g(float(usage.get("used_g") or 0), completion_percent),
+                )
 
     logger.info(
         "Processed print %s (%s) review=%s usages=%s",

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, colorStyle, formatDate } from '../api';
-import { formatWeight } from '../utils/filaments';
+import { formatUsageG, formatWeight } from '../utils/filaments';
 
 export default function DashboardPage() {
   const [data, setData] = useState(null);
@@ -84,7 +84,7 @@ export default function DashboardPage() {
                 {data.recent_prints.map((print) => (
                   <tr key={print.id}>
                     <td>{print.title}</td>
-                    <td>{Math.round(print.total_used_g || 0)}g</td>
+                    <td>{formatUsageG(print.total_used_g)}</td>
                     <td>{formatDate(print.started_at || print.created_at)}</td>
                   </tr>
                 ))}

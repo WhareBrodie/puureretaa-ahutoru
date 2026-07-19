@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { api } from '../api';
+import { formatUsageG } from '../utils/filaments';
 
 export default function ReviewPrintModal({ printJob, spools, onClose, onSaved }) {
   const [assignments, setAssignments] = useState(
@@ -37,7 +38,7 @@ export default function ReviewPrintModal({ printJob, spools, onClose, onSaved })
         {(printJob.usages || []).map((usage) => (
           <div key={usage.id} className="card" style={{ background: 'var(--panel-2)' }}>
             <strong>Slot {usage.ams_slot || '?'}</strong>
-            <div className="muted">{usage.material} {usage.color || ''} — {Math.round(usage.used_g || 0)}g</div>
+            <div className="muted">{usage.material} {usage.color || ''} — {formatUsageG(usage.used_g)}</div>
             <label>
               Assign spool
               <select

@@ -9,6 +9,8 @@ from typing import Any
 
 import requests
 
+from db import ceil_usage_g
+
 logger = logging.getLogger("bambu.cloud")
 
 # Bambu Studio TaskState enum (numeric status on /my/tasks hits).
@@ -288,7 +290,7 @@ class BambuCloudClient:
                         "ams_slot": int(filament.get("id") or len(usages) + 1),
                         "material": (filament.get("type") or "UNKNOWN").upper(),
                         "color": color,
-                        "used_g": float(filament.get("used_g") or 0),
+                        "used_g": ceil_usage_g(float(filament.get("used_g") or 0)),
                         "used_m": float(filament.get("used_m") or 0) if filament.get("used_m") else None,
                     }
                 )
@@ -298,7 +300,7 @@ class BambuCloudClient:
                     "ams_slot": 1,
                     "material": "UNKNOWN",
                     "color": None,
-                    "used_g": float(task.get("weight") or 0),
+                    "used_g": ceil_usage_g(float(task.get("weight") or 0)),
                     "used_m": None,
                 }
             )
