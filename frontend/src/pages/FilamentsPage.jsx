@@ -1,17 +1,20 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { api, colorStyle, photoUrl } from '../api';
+import FilamentFormModal from '../components/FilamentFormModal';
 import SpoolFormModal from '../components/SpoolFormModal';
 import SpoolRing from '../components/SpoolRing';
 import { formatWeight, groupSpoolsIntoFilaments } from '../utils/filaments';
 
 export default function FilamentsPage() {
+  const navigate = useNavigate();
   const [spools, setSpools] = useState([]);
   const [locations, setLocations] = useState([]);
   const [search, setSearch] = useState('');
   const [material, setMaterial] = useState('');
   const [showDepleted, setShowDepleted] = useState(false);
   const [showForm, setShowForm] = useState(false);
+  const [editFilament, setEditFilament] = useState(null);
   const [error, setError] = useState('');
 
   const load = () => {
@@ -85,6 +88,7 @@ export default function FilamentsPage() {
               <th>Brand</th>
               <th>Material</th>
               <th>Spools</th>
+              <th aria-label="Actions" />
               <th aria-label="Alerts" />
             </tr>
           </thead>
@@ -132,6 +136,15 @@ export default function FilamentsPage() {
                       <div className="mini-bar-fill" style={{ width: `${Math.round(pct * 100)}%`, ...colorStyle(filament.color_hex) }} />
                     </div>
                   </td>
+                  <td>
+                    <button
+                      type="button"
+                      className="secondary spool-edit-btn"
+                      onClick={() => setEditFilament(filament)}
+                    >
+                      Edit
+                    </button>
+                  </td>
                   <td>{filament.has_low_stock && (
                     <span className="alert-icon" title={filament.no_stock ? 'No stock' : 'Low stock'}>⚠</span>
                   )}</td>
@@ -142,6 +155,22 @@ export default function FilamentsPage() {
         </table>
         {!filaments.length && <p className="muted empty-state">No filaments match your filters.</p>}
       </div>
+
+      {editFilament && (
+        <FilamentFormModal
+          filamentKey={editFilament.key}
+          filament={editFilament}
+          spoolCount={editFilament.spool_count}
+          onClose={() => setEditFilament(null)}
+          onSaved={(result) => {
+            setEditFilament(null);
+            load();
+            if (result.key && result.key !== editFilament.key) {
+              navigate(`/filaments/${result.key}`);
+            }
+          }}
+        />
+      )}
 
       {showForm && (
         <SpoolFormModal

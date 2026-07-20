@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api, colorStyle, formatDate, photoUrl } from '../api';
+import FilamentFormModal from '../components/FilamentFormModal';
 import SpoolFormModal from '../components/SpoolFormModal';
 import SpoolRing from '../components/SpoolRing';
 import { formatMoney, formatWeight, parseFilamentKey } from '../utils/filaments';
@@ -8,9 +9,11 @@ import { colorSpecLabel } from '../utils/colors';
 
 export default function FilamentDetailPage() {
   const { key } = useParams();
+  const navigate = useNavigate();
   const [spools, setSpools] = useState([]);
   const [locations, setLocations] = useState([]);
   const [showForm, setShowForm] = useState(false);
+  const [showFilamentForm, setShowFilamentForm] = useState(false);
   const [editSpool, setEditSpool] = useState(null);
   const [error, setError] = useState('');
 
@@ -66,7 +69,12 @@ export default function FilamentDetailPage() {
           <h1>{displayName}</h1>
           <p>{filament.brand} · {filament.material}</p>
         </div>
-        <button onClick={() => setShowForm(true)}>+ Add spool</button>
+        <div className="page-header-actions">
+          <button type="button" className="secondary" onClick={() => setShowFilamentForm(true)}>
+            Edit filament
+          </button>
+          <button type="button" onClick={() => setShowForm(true)}>+ Add spool</button>
+        </div>
       </div>
 
       <div className="filament-hero card">
@@ -153,6 +161,28 @@ export default function FilamentDetailPage() {
           </div>
         )}
       </div>
+
+      {showFilamentForm && (
+        <FilamentFormModal
+          filamentKey={key}
+          filament={{
+            brand: filament.brand,
+            material: filament.material,
+            color_name: filament.color_name,
+            color_hex: sample?.color_hex,
+          }}
+          spoolCount={matchingSpools.length}
+          onClose={() => setShowFilamentForm(false)}
+          onSaved={(result) => {
+            setShowFilamentForm(false);
+            if (result.key) {
+              navigate(`/filaments/${result.key}`, { replace: true });
+            } else {
+              load();
+            }
+          }}
+        />
+      )}
 
       {(showForm || editSpool) && (
         <SpoolFormModal

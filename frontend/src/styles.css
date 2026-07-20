@@ -227,6 +227,13 @@ body {
   color: var(--muted);
 }
 
+.page-header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
 .grid {
   display: grid;
   gap: 1rem;

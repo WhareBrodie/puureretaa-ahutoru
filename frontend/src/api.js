@@ -47,6 +47,15 @@ export const api = {
     update: (id, body) => request(`/locations/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
     remove: (id) => request(`/locations/${id}`, { method: 'DELETE' }),
   },
+  filaments: {
+    update: (key, body) => {
+      const pathKey = encodeURIComponent(decodeURIComponent(key));
+      return request(`/filaments/${pathKey}`, {
+        method: 'PUT',
+        body: JSON.stringify(body),
+      });
+    },
+  },
   spools: {
     list: (params = {}) => {
       const query = new URLSearchParams(params).toString();

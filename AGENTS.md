@@ -198,6 +198,7 @@ docker compose -f docker-compose.yml -f docker-compose.local.yml up --build
 
 - `GET /api/dashboard`, `/api/stats`, `/api/alerts`
 - `GET/POST/PUT/DELETE /api/spools`, `/api/locations`
+- `PUT /api/filaments/:key` — bulk-update brand, material, colour name, and swatch for all spools in a filament group (key = URL-encoded `brand|material|color_name`); also updates matching `bambu_filament_rfid` learns
 - `GET/POST /api/prints`, `PUT /api/prints/:id`, `POST /api/prints/:id/review`, `POST /api/prints/:id/apply-deductions` — optional `project_id` on create/update
 - `GET/POST/PUT/DELETE /api/projects` — grouped prints with aggregated filament cost
 - `GET/PUT /api/ams/slots`, `GET /api/ams/live`

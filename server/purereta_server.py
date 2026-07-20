@@ -19,7 +19,7 @@ if str(SERVER_DIR) not in sys.path:
     sys.path.insert(0, str(SERVER_DIR))
 
 from db import get_data_dir, get_root, init_db
-from routes import ams, csv_io, dashboard, empty_spool_weights, locations, prints, projects, settings, spools
+from routes import ams, csv_io, dashboard, empty_spool_weights, filaments, locations, prints, projects, settings, spools
 
 ROOT = get_root()
 DIST = ROOT / "dist"
@@ -289,6 +289,9 @@ class PureretaHandler(SimpleHTTPRequestHandler):
                 return
             if len(parts) == 3 and parts[0] == "api" and parts[1] == "spools":
                 self.end_json(200, spools.update_spool(int(parts[2]), self.read_json_body()))
+                return
+            if len(parts) == 3 and parts[0] == "api" and parts[1] == "filaments":
+                self.end_json(200, filaments.update_filament(parts[2], self.read_json_body()))
                 return
             if len(parts) == 3 and parts[0] == "api" and parts[1] == "prints":
                 self.end_json(200, prints.update_print(int(parts[2]), self.read_json_body()))
