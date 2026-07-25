@@ -8,6 +8,11 @@ from datetime import datetime, timezone
 from typing import Any
 
 from bambu.cloud_sync import BambuCloudClient
+from bambu.credentials import (
+    cloud_credentials_configured,
+    cloud_token_source,
+    save_cloud_access_token,
+)
 from bambu.mqtt_client import BambuMqttClient
 from bambu.task_guard import (
     SYNC_BASELINE_KEY,
@@ -20,10 +25,7 @@ from db import connect, get_setting, get_sync_state, row_to_dict, rows_to_dicts,
 
 
 def _cloud_credentials_configured() -> bool:
-    return bool(
-        os.environ.get("BAMBU_CLOUD_ACCESS_TOKEN")
-        or (os.environ.get("BAMBU_CLOUD_EMAIL") and os.environ.get("BAMBU_CLOUD_PASSWORD"))
-    )
+    return cloud_credentials_configured()
 
 
 def _mqtt_configured() -> bool:
@@ -68,6 +70,8 @@ def get_settings() -> dict[str, Any]:
             "drying_alert_days": int(get_setting(conn, "drying_alert_days", "30") or 30),
             "printer": row_to_dict(printer) if printer else None,
             "bambu_cloud_configured": _cloud_credentials_configured(),
+            "bambu_cloud_token_source": cloud_token_source(),
+            "bambu_cloud_token_set": cloud_token_source() != "none",
             "bambu_mqtt_configured": _mqtt_configured(),
             "bambu_mqtt_mode": _mqtt_mode(),
             "bambu_ftps_configured": bool(
@@ -110,6 +114,13 @@ def update_settings(data: dict[str, Any]) -> dict[str, Any]:
             set_setting(conn, "material_low_stock_thresholds", json.dumps(data["material_low_stock_thresholds"]))
         if "drying_alert_days" in data:
             set_setting(conn, "drying_alert_days", str(data["drying_alert_days"]))
+
+        if "bambu_cloud_access_token" in data:
+            token = (data.get("bambu_cloud_access_token") or "").strip()
+            if token:
+                save_cloud_access_token(token)
+            elif data.get("clear_bambu_cloud_access_token"):
+                save_cloud_access_token(None)
 
         printer_data = data.get("printer")
         if printer_data:

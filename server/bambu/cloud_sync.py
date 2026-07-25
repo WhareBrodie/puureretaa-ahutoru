@@ -9,6 +9,7 @@ from typing import Any
 
 import requests
 
+from bambu.credentials import cloud_credentials_configured, resolve_cloud_access_token
 from db import ceil_usage_g
 
 logger = logging.getLogger("bambu.cloud")
@@ -100,20 +101,20 @@ DEFAULT_MQTT_BROKER = "us.mqtt.bambulab.com"
 
 class BambuCloudClient:
     def __init__(self) -> None:
-        self._token: str | None = os.environ.get("BAMBU_CLOUD_ACCESS_TOKEN")
+        self._session_token: str | None = None
         self._session = requests.Session()
         self._user_id: int | None = None
         self._devices: list[dict[str, Any]] | None = None
 
     def is_configured(self) -> bool:
-        return bool(
-            self._token
-            or (os.environ.get("BAMBU_CLOUD_EMAIL") and os.environ.get("BAMBU_CLOUD_PASSWORD"))
-        )
+        return cloud_credentials_configured()
 
     def _ensure_token(self) -> str | None:
-        if self._token:
-            return self._token
+        token = resolve_cloud_access_token()
+        if token:
+            return token
+        if self._session_token:
+            return self._session_token
         email = os.environ.get("BAMBU_CLOUD_EMAIL")
         password = os.environ.get("BAMBU_CLOUD_PASSWORD")
         if not email or not password:
@@ -128,14 +129,19 @@ class BambuCloudClient:
             data = resp.json()
             if data.get("loginType") == "verifyCode":
                 logger.error(
-                    "Bambu cloud login requires 2FA verification; set BAMBU_CLOUD_ACCESS_TOKEN in Portainer instead"
+                    "Bambu cloud login requires 2FA verification; set a MakerWorld access token instead"
                 )
                 return None
-            self._token = data.get("accessToken") or data.get("access_token")
-            return self._token
+            self._session_token = data.get("accessToken") or data.get("access_token")
+            return self._session_token
         except Exception:
             logger.exception("Bambu cloud login failed")
             return None
+
+    def _invalidate_session(self) -> None:
+        self._session_token = None
+        self._user_id = None
+        self._devices = None
 
     def _headers(self) -> dict[str, str]:
         token = self._ensure_token()
@@ -155,7 +161,7 @@ class BambuCloudClient:
                 timeout=30,
             )
             if resp.status_code == 401:
-                self._token = None
+                self._invalidate_session()
                 resp = self._session.get(
                     f"{API_BASE}/v1/design-user-service/my/preference",
                     headers=self._headers(),
@@ -185,7 +191,7 @@ class BambuCloudClient:
                 timeout=30,
             )
             if resp.status_code == 401:
-                self._token = None
+                self._invalidate_session()
                 resp = self._session.get(
                     f"{API_BASE}/v1/iot-service/api/user/bind",
                     headers=self._headers(),
@@ -251,7 +257,7 @@ class BambuCloudClient:
                 timeout=30,
             )
             if resp.status_code == 401:
-                self._token = None
+                self._invalidate_session()
                 resp = self._session.get(
                     f"{API_BASE}/v1/user-service/my/tasks",
                     headers=self._headers(),

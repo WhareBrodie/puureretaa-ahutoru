@@ -22,6 +22,7 @@ export default function SettingsPage() {
   const [skipDepleted, setSkipDepleted] = useState(true);
   const [importResult, setImportResult] = useState(null);
   const [showDiagnostics, setShowDiagnostics] = useState(false);
+  const [cloudTokenInput, setCloudTokenInput] = useState('');
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
 
@@ -40,6 +41,21 @@ export default function SettingsPage() {
   };
 
   useEffect(load, []);
+
+  const savePrinterSettings = async () => {
+    try {
+      const body = { printer: settings.printer };
+      if (cloudTokenInput.trim()) {
+        body.bambu_cloud_access_token = cloudTokenInput.trim();
+      }
+      const updated = await api.settings.update(body);
+      setSettings(updated);
+      setCloudTokenInput('');
+      setMessage('Printer settings saved');
+    } catch (err) {
+      setError(err.message);
+    }
+  };
 
   const saveSettings = async () => {
     try {
@@ -299,21 +315,37 @@ export default function SettingsPage() {
           </div>
           <div className="status-line">
             Cloud: {settings.bambu_cloud_configured ? 'Yes' : 'No'}
+            {settings.bambu_cloud_token_source === 'env' && ' (token from server env)'}
+            {settings.bambu_cloud_token_source === 'app' && ' (token saved in app)'}
             {' · '}
             MQTT ({settings.bambu_mqtt_mode || 'none'}): {settings.bambu_mqtt_configured ? 'Yes' : 'No'}
           </div>
+          <label>
+            Bambu cloud access token
+            <input
+              type="password"
+              autoComplete="off"
+              value={cloudTokenInput}
+              onChange={(e) => setCloudTokenInput(e.target.value)}
+              placeholder={settings.bambu_cloud_token_set ? 'Token saved — paste to replace' : 'Paste MakerWorld cookie token'}
+            />
+          </label>
+          <p className="muted">
+            From MakerWorld (Chrome DevTools → Application → Cookies → <code>token</code>).
+            Stored on the server volume — use this if you cannot edit Portainer.
+          </p>
           <details className="settings-details">
             <summary>Bambu setup notes</summary>
             <p className="muted">
-              Do not enable LAN Only Mode. Cloud token: MakerWorld cookie <code>token</code> →
-              <code>BAMBU_CLOUD_ACCESS_TOKEN</code> in Portainer. LAN vars add AMS live state only when reachable from the deploy host.
+              Do not enable LAN Only Mode. An optional Portainer <code>BAMBU_CLOUD_ACCESS_TOKEN</code> is used
+              only when no token is saved below; saving here replaces a stale Portainer token without redeploy.
             </p>
           </details>
           <div className="toolbar">
             <button type="button" className="secondary" onClick={skipCloudHistory}>
               Clear Bambu history &amp; restore weights
             </button>
-            <button onClick={saveSettings}>Save printer</button>
+            <button onClick={savePrinterSettings}>Save printer</button>
           </div>
         </div>
       )}

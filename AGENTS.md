@@ -80,7 +80,7 @@ Bambu does **not** show this in Bambu Studio anymore. Two practical methods:
 3. Open **Cookies** → select `https://makerworld.com` (or `makerworld.com`).
 4. Find the cookie named **`token`** (not `refresh_token` or session IDs).
 5. Copy the full **Value** — a long string, often starting with `eyJ` (JWT).
-6. In Portainer, add env var `BAMBU_CLOUD_ACCESS_TOKEN` = paste that value (no `Bearer` prefix).
+6. In Portainer, add env var `BAMBU_CLOUD_ACCESS_TOKEN` = paste that value (no `Bearer` prefix), **or** paste the same value in **Settings → Printer → Bambu cloud access token** (stored on the server volume; no Portainer needed).
 7. Redeploy the stack.
 
 Token is usually valid ~3 months; repeat when sync stops with 401 errors.
