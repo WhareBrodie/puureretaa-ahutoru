@@ -189,3 +189,14 @@ def skip_cloud_history(delete_imported: bool = False) -> dict[str, Any]:
     result["restored_grams"] = restored_grams
     result["ignored_tasks"] = ignored_tasks
     return result
+
+
+def trigger_cloud_sync() -> dict[str, Any]:
+    """Run one cloud task poll immediately (same logic as the background worker)."""
+    from bambu.sync_worker import SyncWorker
+
+    worker = SyncWorker()
+    if not worker.cloud.is_configured():
+        return {"ok": False, "error": "Bambu cloud is not configured"}
+    worker.poll_cloud_tasks()
+    return get_settings()

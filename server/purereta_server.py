@@ -241,6 +241,10 @@ class PureretaHandler(SimpleHTTPRequestHandler):
                 )
                 return
 
+            if parts == ["api", "settings", "sync-cloud"]:
+                self.end_json(200, settings.trigger_cloud_sync())
+                return
+
             if parts == ["api", "ams", "refresh"]:
                 self.end_json(200, ams.refresh_from_printer())
                 return
