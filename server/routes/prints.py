@@ -258,10 +258,17 @@ def resolve_print_review_v2(print_id: int, data: dict[str, Any]) -> dict[str, An
                     "UPDATE print_usages SET filament_deducted = 0 WHERE id = ?",
                     (usage_id,),
                 )
-            conn.execute(
-                "UPDATE print_usages SET spool_id = ?, resolved = ? WHERE id = ?",
-                (spool_id, 1 if spool_id else 0, usage_id),
-            )
+            ams_slot = assignment.get("ams_slot")
+            if ams_slot is not None:
+                conn.execute(
+                    "UPDATE print_usages SET spool_id = ?, ams_slot = ?, resolved = ? WHERE id = ?",
+                    (spool_id, int(ams_slot), 1 if spool_id else 0, usage_id),
+                )
+            else:
+                conn.execute(
+                    "UPDATE print_usages SET spool_id = ?, resolved = ? WHERE id = ?",
+                    (spool_id, 1 if spool_id else 0, usage_id),
+                )
             if spool_id and not skip and usage["used_g"] > 0:
                 deduct_print_usage(
                     conn,

@@ -368,8 +368,9 @@ class BambuCloudClient:
                 if slot_raw is None:
                     continue
                 tray_index = int(slot_raw)
-                if tray_index >= 254:
-                    ams_slot = 1
+                # 254/255 = external spool / unknown — never invent an AMS slot.
+                if tray_index >= 254 or tray_index < 0:
+                    ams_slot = None
                 else:
                     ams_slot = max(1, min(4, tray_index + 1))
                 color = entry.get("color") or entry.get("filamentColor") or ""
@@ -392,15 +393,22 @@ class BambuCloudClient:
         self,
         filament_id: int,
         ams_mapping: list[int] | None,
-    ) -> int:
-        if ams_mapping:
-            slicer_index = max(0, int(filament_id) - 1)
-            if slicer_index < len(ams_mapping):
-                tray_index = int(ams_mapping[slicer_index])
-                if tray_index >= 254:
-                    return 1
-                return max(1, min(4, tray_index + 1))
-        return max(1, min(4, int(filament_id)))
+    ) -> int | None:
+        """Map slicer filament id → physical AMS slot (1–4).
+
+        Slicer filament ids are NOT AMS tray numbers. Without ams_mapping from
+        Bambu, return None so we do not invent slot 1 (a prior bug that deducted
+        the wrong spool whenever cloud tasks omitted mapping).
+        """
+        if not ams_mapping:
+            return None
+        slicer_index = max(0, int(filament_id) - 1)
+        if slicer_index >= len(ams_mapping):
+            return None
+        tray_index = int(ams_mapping[slicer_index])
+        if tray_index >= 254 or tray_index < 0:
+            return None
+        return max(1, min(4, tray_index + 1))
 
     def extract_filament_usages(self, task: dict[str, Any]) -> list[dict[str, Any]]:
         detail_usages = self._usages_from_ams_detail_mapping(task)
@@ -421,7 +429,7 @@ class BambuCloudClient:
                     {
                         "ams_slot": self.map_slicer_filament_to_ams_slot(filament_id, ams_mapping),
                         "material": (filament.get("type") or "UNKNOWN").upper(),
-                        "color": color,
+                        "color": color or None,
                         "used_g": ceil_usage_g(float(filament.get("used_g") or 0)),
                         "used_m": float(filament.get("used_m") or 0) if filament.get("used_m") else None,
                     }
@@ -429,7 +437,7 @@ class BambuCloudClient:
         if not usages and task.get("weight"):
             usages.append(
                 {
-                    "ams_slot": 1,
+                    "ams_slot": None,
                     "material": "UNKNOWN",
                     "color": None,
                     "used_g": ceil_usage_g(float(task.get("weight") or 0)),

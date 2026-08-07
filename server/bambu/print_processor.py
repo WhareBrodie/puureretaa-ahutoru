@@ -17,9 +17,9 @@ from db import connect, ceil_usage_g, deduct_spool_weight, scaled_deduction_g, s
 logger = logging.getLogger("bambu.processor")
 
 
-def normalize_ams_slot(value: Any) -> int:
+def normalize_ams_slot(value: Any) -> int | None:
     if value is None or value == "":
-        return 1
+        return None
     slot = int(value)
     if slot < 1:
         slot += 1
@@ -194,13 +194,26 @@ def _apply_usage_relink(
     restored: list[dict[str, Any]],
 ) -> None:
     slot = normalize_ams_slot(match.get("ams_slot"))
-    spool_id = resolve_spool_for_slot(
-        conn,
-        printer_id,
-        slot,
-        match.get("material"),
-        match.get("color"),
-    )
+    spool_id = None
+    if slot is not None:
+        spool_id = resolve_spool_for_slot(
+            conn,
+            printer_id,
+            slot,
+            match.get("material"),
+            match.get("color"),
+        )
+    if not spool_id:
+        matched_spool, matched_slot = resolve_spool_from_mapped_slots(
+            conn,
+            printer_id,
+            match.get("material") or row["material"],
+            match.get("color") or row["color"],
+        )
+        if matched_spool:
+            spool_id = matched_spool
+            if slot is None:
+                slot = matched_slot
     old_spool_id = row["spool_id"]
     if (
         row["filament_deducted"]
@@ -375,13 +388,17 @@ def process_print_job(
     with connect() as conn:
         for usage in usages:
             slot = normalize_ams_slot(usage.get("ams_slot"))
-            spool_id = resolve_spool_for_slot(
-                conn,
-                printer_id,
-                slot,
-                usage.get("material"),
-                usage.get("color"),
-            )
+            spool_id = None
+            if slot is not None:
+                spool_id = resolve_spool_for_slot(
+                    conn,
+                    printer_id,
+                    slot,
+                    usage.get("material"),
+                    usage.get("color"),
+                )
+            # Do NOT guess an AMS slot from slicer filament id or invent slot 1.
+            # When Bambu omits ams_mapping, leave unresolved for the review queue.
             item = {
                 **usage,
                 "ams_slot": slot,
