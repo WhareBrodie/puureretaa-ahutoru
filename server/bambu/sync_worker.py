@@ -8,6 +8,7 @@ import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 SERVER_DIR = Path(__file__).resolve().parent.parent
 if str(SERVER_DIR) not in sys.path:
@@ -119,44 +120,82 @@ class SyncWorker:
                     return detail
         return None
 
-    def poll_cloud_tasks(self) -> None:
+    def poll_cloud_tasks(self) -> dict[str, Any]:
         if not self.cloud.is_configured():
-            return
+            return {"ok": False, "error": "cloud not configured", "examined": []}
         with connect() as conn:
             ensure_cloud_sync_baseline(conn)
         # Fetch recent tasks without the `after` cursor — Bambu expects a task id there,
         # and we previously stored ISO timestamps which skipped finished jobs.
         tasks = self.cloud.fetch_tasks(limit=50)
         if not tasks:
-            return
+            return {"ok": True, "examined": [], "imported": []}
+
+        examined: list[dict[str, Any]] = []
+        imported: list[dict[str, Any]] = []
 
         for task in reversed(tasks):
             task_id = str(task.get("id") or task.get("taskId") or "")
             if not task_id:
                 continue
             detail = self.cloud.fetch_task_detail(task_id) or task
+            title = detail.get("title") or task.get("title") or ""
+            entry: dict[str, Any] = {
+                "bambu_task_id": task_id,
+                "title": title,
+                "raw_status": detail.get("status"),
+                "startTime": detail.get("startTime") or task.get("startTime"),
+                "endTime": detail.get("endTime") or task.get("endTime"),
+                "weight": detail.get("weight") or task.get("weight"),
+            }
             if not task_is_importable(detail):
+                entry["skip"] = "not_finished"
+                examined.append(entry)
                 continue
             normalized_status = normalize_cloud_task_status(detail)
+            entry["normalized_status"] = normalized_status
             if not normalized_status:
+                entry["skip"] = "unknown_status"
+                examined.append(entry)
                 continue
             if normalized_status == "cancelled":
-                logger.info("Skipping cancelled cloud task %s", task_id)
+                entry["skip"] = "cancelled"
+                examined.append(entry)
                 continue
             with connect() as conn:
                 if is_bambu_task_ignored(conn, task_id):
+                    entry["skip"] = "ignored"
+                    examined.append(entry)
                     continue
                 existing = conn.execute(
                     "SELECT id FROM print_jobs WHERE bambu_task_id = ?", (task_id,)
                 ).fetchone()
             if existing:
+                entry["skip"] = "already_imported"
+                entry["print_id"] = existing["id"]
+                examined.append(entry)
                 continue
             ended_at = task_timestamp(detail) or task_timestamp(task)
             with connect() as conn:
                 if is_before_baseline(conn, ended_at):
+                    entry["skip"] = "before_baseline"
+                    examined.append(entry)
                     continue
+            ams_mapping = self.cloud.extract_ams_mapping(detail)
             usages = self.cloud.extract_filament_usages(detail)
+            entry["ams_mapping"] = ams_mapping
+            entry["usages"] = [
+                {
+                    "ams_slot": u.get("ams_slot"),
+                    "material": u.get("material"),
+                    "color": u.get("color"),
+                    "used_g": u.get("used_g"),
+                }
+                for u in usages
+            ]
             if not usages:
+                entry["skip"] = "no_filament_usage"
+                examined.append(entry)
                 continue
             completion = task_completion_percent(detail, normalized_status)
             result = process_print_job(
@@ -172,6 +211,18 @@ class SyncWorker:
                 usages=usages,
             )
             if result.get("ignored"):
+                entry["skip"] = "processor_ignored"
+                entry["reason"] = result.get("reason")
+                examined.append(entry)
+                continue
+            entry["imported"] = True
+            entry["print_id"] = result.get("id")
+            entry["needs_review"] = result.get("needs_review")
+            entry["duplicate"] = result.get("duplicate")
+            examined.append(entry)
+            if not result.get("duplicate"):
+                imported.append(entry)
+            if result.get("ignored"):
                 logger.info("Skipped cloud task %s (ignored or before baseline)", task_id)
 
         newest = tasks[0]
@@ -179,6 +230,16 @@ class SyncWorker:
         if task_id:
             with connect() as conn:
                 set_sync_state(conn, "cloud_tasks_after", task_id)
+
+        # Newest-first for the API response
+        examined_newest_first = list(reversed(examined))
+        return {
+            "ok": True,
+            "newest_task_id": task_id or None,
+            "imported_count": len(imported),
+            "imported": imported,
+            "examined": examined_newest_first[:15],
+        }
 
     def run(self) -> None:
         init_db()

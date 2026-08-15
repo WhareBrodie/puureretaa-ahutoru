@@ -198,5 +198,10 @@ def trigger_cloud_sync() -> dict[str, Any]:
     worker = SyncWorker()
     if not worker.cloud.is_configured():
         return {"ok": False, "error": "Bambu cloud is not configured"}
-    worker.poll_cloud_tasks()
-    return get_settings()
+    report = worker.poll_cloud_tasks()
+    settings = get_settings()
+    return {
+        "ok": bool(report.get("ok")),
+        "sync": report,
+        "settings": settings,
+    }
