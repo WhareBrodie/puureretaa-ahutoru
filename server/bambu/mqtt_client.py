@@ -286,6 +286,9 @@ class BambuMqttClient:
     def _handle_message(self, payload: dict[str, Any]) -> None:
         record_mqtt_diagnostics(payload)
         print_data = payload.get("print") or {}
+        from bambu.ams_mapping_store import capture_ams_mapping_from_mqtt
+
+        capture_ams_mapping_from_mqtt(print_data)
         gcode_state = str(print_data.get("gcode_state", self._last_state) or "IDLE").upper()
 
         printer_state = {

@@ -54,7 +54,16 @@ Sync baseline lives in `cloud_sync_baseline` (timestamp). Poll fetches the **50 
 
 **Prints → Delete** removes a print and restores any filament that print deducted back to linked spools.
 
-Auto-import deducts filament **per mapped AMS slot**, even when other slots on the same print still need review. Cloud import uses Bambu’s `ams_mapping` / `amsDetailMapping` to translate slicer filament IDs into physical AMS tray numbers (slicer order ≠ AMS slot). **If that mapping is missing** (common on list/detail payloads with empty `amsDetailMapping`), the print is queued for **review** — we do **not** treat slicer filament id `1` as AMS slot 1 (that bug deducted Beige for slot-4 Black Funko prints). Each usage line tracks `filament_deducted` so restore/delete/review cannot double-deduct. **Prints → Deduct** re-fetches the cloud task, fixes tray mapping when present, restores a wrongly deducted spool if the link changed, then deducts from the correct mapped spool — no need to delete the print.
+Auto-import deducts filament **per mapped AMS slot**, even when other slots on the same print still need review. Cloud task history often **omits** `ams_mapping` / has empty `amsDetailMapping`. Slicer filament ids are **not** AMS trays — we never invent slot 1 from filament id `1`.
+
+Instead, sync:
+
+1. Captures `ams_mapping` from **MQTT when the print starts** (Studio’s real AMS tray mapping) and stores it by Bambu task id
+2. Applies that stored mapping when the finished cloud task is imported
+3. If mapping is still unknown, matches your **current AMS slot mappings** by material (including support) and colour
+4. If still ambiguous → **review queue** (no silent wrong deduction)
+
+Each usage line tracks `filament_deducted` so restore/delete/review cannot double-deduct. **Prints → Deduct** re-fetches the cloud task, re-applies stored/cloud mapping, restores a wrongly deducted spool if the link changed, then deducts from the correct mapped spool.
 
 Print usage is always rounded **up** to one decimal place for display and spool deduction (e.g. 11.61 g → 11.7 g).
 

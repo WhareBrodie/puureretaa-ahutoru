@@ -53,12 +53,17 @@ class SyncWorker:
         usages: list[dict] = []
         source = "mqtt"
         task = self._find_matching_cloud_task(event)
+        bambu_task_id = None
         if task:
-            usages = self.cloud.extract_filament_usages(task)
-            source = "cloud"
             bambu_task_id = str(task.get("id") or task.get("taskId") or "")
-        else:
-            bambu_task_id = None
+            from bambu.ams_mapping_store import lookup_ams_mapping
+
+            stored_mapping = lookup_ams_mapping(
+                task_id=bambu_task_id,
+                gcode_file=event.get("gcode_file"),
+            )
+            usages = self.cloud.extract_filament_usages(task, ams_mapping_override=stored_mapping)
+            source = "cloud"
 
         if not usages and event.get("gcode_file") and self.ftps.is_configured():
             event_status = event.get("status") or "completed"
@@ -182,8 +187,14 @@ class SyncWorker:
                     examined.append(entry)
                     continue
             ams_mapping = self.cloud.extract_ams_mapping(detail)
-            usages = self.cloud.extract_filament_usages(detail)
+            from bambu.ams_mapping_store import lookup_ams_mapping
+
+            stored_mapping = lookup_ams_mapping(task_id=task_id)
+            if stored_mapping:
+                ams_mapping = stored_mapping
+            usages = self.cloud.extract_filament_usages(detail, ams_mapping_override=ams_mapping)
             entry["ams_mapping"] = ams_mapping
+            entry["ams_mapping_source"] = "mqtt_store" if stored_mapping else ("cloud" if ams_mapping else None)
             entry["usages"] = [
                 {
                     "ams_slot": u.get("ams_slot"),

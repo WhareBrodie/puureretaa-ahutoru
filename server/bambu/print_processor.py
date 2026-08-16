@@ -119,16 +119,64 @@ def resolve_spool_for_slot(
     return None
 
 
+def _normalize_material(value: str | None) -> str:
+    return (value or "").upper().replace("_", "-").strip()
+
+
+def _is_support_material(value: str | None) -> bool:
+    token = _normalize_material(value)
+    return token in {
+        "PLA-S",
+        "PETG-S",
+        "SUPPORT",
+        "SUPPORT-FOR-PLA",
+        "SUPPORT-FOR-PA",
+        "SUPPORT-FOR-PETG",
+        "SUPPORT-PA",
+        "SUPPORT-PETG",
+    } or token.startswith("SUPPORT")
+
+
+def _materials_compatible(usage_material: str | None, spool_material: str | None) -> bool:
+    usage = _normalize_material(usage_material)
+    spool = _normalize_material(spool_material)
+    if not usage or usage == "UNKNOWN":
+        return True
+    if usage == spool:
+        return True
+    if _is_support_material(usage) and _is_support_material(spool):
+        return True
+    if usage == "PLA" and spool.startswith("PLA") and not _is_support_material(spool):
+        return True
+    return False
+
+
+def _tray_color_hex(value: str | None) -> str | None:
+    if not value:
+        return None
+    raw = str(value).strip()
+    if raw.startswith("#"):
+        raw = raw[1:]
+    raw = raw[:6]
+    if len(raw) != 6:
+        return None
+    return f"#{raw.upper()}"
+
+
 def resolve_spool_from_mapped_slots(
     conn,
     printer_id: int,
     material: str | None,
     color: str | None,
 ) -> tuple[int | None, int | None]:
-    """Pick a spool from current AMS slot mappings by material/colour."""
+    """Pick a spool from current AMS slot mappings by material/colour.
+
+    Uses inventory colour and live MQTT tray colour. Prefer unique material
+    matches (e.g. support) so remaps drive deduction when cloud omits trays.
+    """
     rows = conn.execute(
         """
-        SELECT m.slot, m.spool_id, s.material, s.color_hex, s.color_name
+        SELECT m.slot, m.spool_id, m.mqtt_tray_color, s.material, s.color_hex, s.color_name
         FROM ams_slot_mappings m
         JOIN spools s ON s.id = m.spool_id
         WHERE m.printer_id = ? AND m.spool_id IS NOT NULL
@@ -138,10 +186,9 @@ def resolve_spool_from_mapped_slots(
     if not rows:
         return None, None
 
-    candidates = rows
-    if material:
-        material = material.upper()
-        filtered = [row for row in rows if (row["material"] or "").upper() == material]
+    candidates = list(rows)
+    if material and _normalize_material(material) != "UNKNOWN":
+        filtered = [row for row in rows if _materials_compatible(material, row["material"])]
         if filtered:
             candidates = filtered
 
@@ -150,8 +197,15 @@ def resolve_spool_from_mapped_slots(
         return int(row["spool_id"]), int(row["slot"])
 
     if color:
-        best = min(candidates, key=lambda row: _color_distance(color, row["color_hex"]))
-        if _color_distance(color, best["color_hex"]) <= 120:
+        scored = []
+        for row in candidates:
+            distance = min(
+                _color_distance(color, row["color_hex"]),
+                _color_distance(color, _tray_color_hex(row["mqtt_tray_color"])),
+            )
+            scored.append((distance, row))
+        best_distance, best = min(scored, key=lambda item: item[0])
+        if best_distance <= 120:
             return int(best["spool_id"]), int(best["slot"])
 
     return None, None
@@ -306,7 +360,13 @@ def refresh_cloud_print_usage_links(conn, job: dict[str, Any]) -> tuple[int, lis
     if not detail:
         return relink_usages_from_ams_mappings(conn, job)
 
-    fresh_usages = cloud.extract_filament_usages(detail)
+    from bambu.ams_mapping_store import lookup_ams_mapping
+
+    stored_mapping = lookup_ams_mapping(
+        task_id=str(job["bambu_task_id"]),
+        gcode_file=job.get("gcode_file"),
+    )
+    fresh_usages = cloud.extract_filament_usages(detail, ams_mapping_override=stored_mapping)
     weighted_fresh = [usage for usage in fresh_usages if float(usage.get("used_g") or 0) > 0]
     if not weighted_fresh:
         return relink_usages_from_ams_mappings(conn, job)
@@ -397,8 +457,19 @@ def process_print_job(
                     usage.get("material"),
                     usage.get("color"),
                 )
-            # Do NOT guess an AMS slot from slicer filament id or invent slot 1.
-            # When Bambu omits ams_mapping, leave unresolved for the review queue.
+            if not spool_id:
+                # Cloud often omits tray mapping. Fall back to the AMS slot
+                # mappings the user set (material + colour), never invent slot 1.
+                matched_spool, matched_slot = resolve_spool_from_mapped_slots(
+                    conn,
+                    printer_id,
+                    usage.get("material"),
+                    usage.get("color"),
+                )
+                if matched_spool:
+                    spool_id = matched_spool
+                    if slot is None:
+                        slot = matched_slot
             item = {
                 **usage,
                 "ams_slot": slot,

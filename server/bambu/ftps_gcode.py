@@ -107,7 +107,8 @@ def parse_filament_usage(gcode: str, completion_percent: float = 100) -> list[di
     for match in FILAMENT_CHANGE_RE.finditer(gcode):
         usages.append(
             {
-                "ams_slot": len(usages) + 1,
+                # Gcode filament order is slicer order, not AMS tray — leave unset.
+                "ams_slot": None,
                 "material": match.group("type").upper(),
                 "color": None,
                 "used_g": ceil_usage_g(float(match.group("used")) * scale),
@@ -120,7 +121,7 @@ def parse_filament_usage(gcode: str, completion_percent: float = 100) -> list[di
         if total:
             usages.append(
                 {
-                    "ams_slot": 1,
+                    "ams_slot": None,
                     "material": "UNKNOWN",
                     "color": None,
                     "used_g": ceil_usage_g(float(total.group("used")) * scale),

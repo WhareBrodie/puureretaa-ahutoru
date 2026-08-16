@@ -410,22 +410,23 @@ class BambuCloudClient:
             return None
         return max(1, min(4, tray_index + 1))
 
-    def extract_filament_usages(self, task: dict[str, Any]) -> list[dict[str, Any]]:
-        detail_usages = self._usages_from_ams_detail_mapping(task)
-        if detail_usages:
-            return detail_usages
+    def extract_filament_usages(
+        self,
+        task: dict[str, Any],
+        ams_mapping_override: list[int] | None = None,
+    ) -> list[dict[str, Any]]:
+        ams_mapping = ams_mapping_override or self.extract_ams_mapping(task)
 
-        usages: list[dict[str, Any]] = []
+        plate_usages: list[dict[str, Any]] = []
         profile = task.get("profile") or task
         plates = profile.get("plates") or task.get("plates") or []
-        ams_mapping = self.extract_ams_mapping(task)
         for plate in plates:
             for filament in plate.get("filaments") or []:
                 color = filament.get("color") or ""
                 if color and not color.startswith("#"):
                     color = f"#{color[:6]}"
-                filament_id = int(filament.get("id") or len(usages) + 1)
-                usages.append(
+                filament_id = int(filament.get("id") or len(plate_usages) + 1)
+                plate_usages.append(
                     {
                         "ams_slot": self.map_slicer_filament_to_ams_slot(filament_id, ams_mapping),
                         "material": (filament.get("type") or "UNKNOWN").upper(),
@@ -434,8 +435,23 @@ class BambuCloudClient:
                         "used_m": float(filament.get("used_m") or 0) if filament.get("used_m") else None,
                     }
                 )
-        if not usages and task.get("weight"):
-            usages.append(
+
+        # MQTT/cloud ams_mapping is authoritative for tray choice. Prefer plates + mapping.
+        if plate_usages and ams_mapping:
+            return plate_usages
+
+        detail_usages = self._usages_from_ams_detail_mapping(task)
+        if detail_usages:
+            if ams_mapping:
+                for index, usage in enumerate(detail_usages, start=1):
+                    usage["ams_slot"] = self.map_slicer_filament_to_ams_slot(index, ams_mapping)
+            return detail_usages
+
+        if plate_usages:
+            return plate_usages
+
+        if task.get("weight"):
+            return [
                 {
                     "ams_slot": None,
                     "material": "UNKNOWN",
@@ -443,5 +459,5 @@ class BambuCloudClient:
                     "used_g": ceil_usage_g(float(task.get("weight") or 0)),
                     "used_m": None,
                 }
-            )
-        return usages
+            ]
+        return []
