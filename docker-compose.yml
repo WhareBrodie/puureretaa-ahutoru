@@ -6,7 +6,7 @@ services:
     container_name: purereta-ahutoru
     restart: unless-stopped
     volumes:
-      - /c/containers/vibes/purereta-ahutoru/data:/app/data
+      - /home/josh/containers/vibes/purereta-ahutoru/data:/app/data
     environment:
       - TZ=Pacific/Auckland
       - PUBLIC_URL=http://xn--preret-ahutoru-qub40o.internal
