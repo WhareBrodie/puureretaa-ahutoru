@@ -132,7 +132,7 @@ def create_spool(data: dict[str, Any]) -> dict[str, Any]:
     if not brand or not material:
         raise ValueError("brand and material are required")
 
-    qr_code_id = data.get("qr_code_id") or str(uuid.uuid4()).hex[:12].upper()
+    qr_code_id = data.get("qr_code_id") or uuid.uuid4().hex[:12].upper()
     remaining = data.get("remaining_g")
     initial = data.get("initial_weight_g") or 1000
     if remaining is None:
