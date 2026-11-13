@@ -35,6 +35,9 @@ export const api = {
   settings: {
     get: () => request('/settings'),
     update: (body) => request('/settings', { method: 'PUT', body: JSON.stringify(body) }),
+    syncCloud: () => request('/settings/sync-cloud', { method: 'POST', body: '{}' }),
+    bambuLogin: (body) =>
+      request('/settings/bambu-login', { method: 'POST', body: JSON.stringify(body) }),
     skipCloudHistory: (deleteImported = false) =>
       request('/settings/skip-cloud-history', {
         method: 'POST',

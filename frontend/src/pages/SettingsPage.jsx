@@ -23,6 +23,11 @@ export default function SettingsPage() {
   const [importResult, setImportResult] = useState(null);
   const [showDiagnostics, setShowDiagnostics] = useState(false);
   const [cloudTokenInput, setCloudTokenInput] = useState('');
+  const [loginEmail, setLoginEmail] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+  const [loginCode, setLoginCode] = useState('');
+  const [needsLoginCode, setNeedsLoginCode] = useState(false);
+  const [syncBusy, setSyncBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
 
@@ -44,14 +49,70 @@ export default function SettingsPage() {
 
   const savePrinterSettings = async () => {
     try {
+      setError('');
       const body = { printer: settings.printer };
-      if (cloudTokenInput.trim()) {
-        body.bambu_cloud_access_token = cloudTokenInput.trim();
+      const tokenToSave = cloudTokenInput.trim();
+      if (tokenToSave) {
+        body.bambu_cloud_access_token = tokenToSave;
       }
       const updated = await api.settings.update(body);
       setSettings(updated);
       setCloudTokenInput('');
-      setMessage('Printer settings saved');
+      setMessage(
+        tokenToSave
+          ? 'Printer settings saved — token validated with Bambu'
+          : 'Printer settings saved',
+      );
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const syncCloudNow = async () => {
+    try {
+      setSyncBusy(true);
+      setError('');
+      const result = await api.settings.syncCloud();
+      if (result.settings) setSettings(result.settings);
+      if (!result.ok) {
+        setError(result.error || result.sync?.error || 'Cloud sync failed');
+        return;
+      }
+      const imported = result.sync?.imported_count || 0;
+      setMessage(
+        imported
+          ? `Cloud sync OK — imported ${imported} print(s)`
+          : 'Cloud sync OK — no new prints',
+      );
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSyncBusy(false);
+    }
+  };
+
+  const bambuLogin = async () => {
+    try {
+      setError('');
+      const result = await api.settings.bambuLogin({
+        email: loginEmail,
+        password: loginPassword,
+        code: loginCode || undefined,
+      });
+      if (result.settings) setSettings(result.settings);
+      if (result.needs_code) {
+        setNeedsLoginCode(true);
+        setMessage(result.error || 'Enter the verification code Bambu emailed you');
+        return;
+      }
+      if (!result.ok) {
+        setError(result.error || 'Bambu login failed');
+        return;
+      }
+      setNeedsLoginCode(false);
+      setLoginPassword('');
+      setLoginCode('');
+      setMessage('Signed in to Bambu cloud — token saved');
     } catch (err) {
       setError(err.message);
     }
@@ -313,13 +374,28 @@ export default function SettingsPage() {
               />
             </label>
           </div>
-          <div className="status-line">
-            Cloud: {settings.bambu_cloud_configured ? 'Yes' : 'No'}
-            {settings.bambu_cloud_token_source === 'env' && ' (token from server env)'}
-            {settings.bambu_cloud_token_source === 'app' && ' (token saved in app)'}
-            {' · '}
-            MQTT ({settings.bambu_mqtt_mode || 'none'}): {settings.bambu_mqtt_configured ? 'Yes' : 'No'}
-          </div>
+          {(() => {
+            const auth = settings.bambu_cloud_auth || {};
+            const broken = Boolean(auth.auth_error || auth.expired);
+            return (
+              <div className={`status-line ${broken ? 'warning' : ''}`}>
+                Cloud auth:{' '}
+                {broken
+                  ? 'Broken'
+                  : auth.healthy
+                    ? 'OK'
+                    : settings.bambu_cloud_configured
+                      ? 'Configured'
+                      : 'Not configured'}
+                {auth.token_source && auth.token_source !== 'none' ? ` (${auth.token_source})` : ''}
+                {auth.days_left != null ? ` · expires in ${auth.days_left}d` : ''}
+                {auth.auth_error ? ` — ${auth.auth_error}` : ''}
+                {' · '}
+                MQTT ({settings.bambu_mqtt_mode || 'none'}): {settings.bambu_mqtt_configured ? 'Yes' : 'No'}
+                {auth.poll_ok_at ? ` · last poll ${formatDate(auth.poll_ok_at)}` : ''}
+              </div>
+            );
+          })()}
           <label>
             Bambu cloud access token
             <input
@@ -332,8 +408,41 @@ export default function SettingsPage() {
           </label>
           <p className="muted">
             From MakerWorld (Chrome DevTools → Application → Cookies → <code>token</code>).
-            Stored on the server volume — use this if you cannot edit Portainer.
+            Saved tokens are validated with Bambu before storage. Tokens last ~90 days; the dashboard warns before expiry.
           </p>
+          <details className="settings-details">
+            <summary>Sign in with Bambu email (preferred when 2FA allows)</summary>
+            <div className="form-grid two" style={{ marginTop: '0.75rem' }}>
+              <label>
+                Email
+                <input value={loginEmail} onChange={(e) => setLoginEmail(e.target.value)} autoComplete="username" />
+              </label>
+              <label>
+                Password
+                <input
+                  type="password"
+                  value={loginPassword}
+                  onChange={(e) => setLoginPassword(e.target.value)}
+                  autoComplete="current-password"
+                />
+              </label>
+              {needsLoginCode && (
+                <label>
+                  Verification code
+                  <input value={loginCode} onChange={(e) => setLoginCode(e.target.value)} autoComplete="one-time-code" />
+                </label>
+              )}
+            </div>
+            <div className="toolbar" style={{ marginTop: '0.75rem' }}>
+              <button type="button" className="secondary" onClick={bambuLogin}>
+                {needsLoginCode ? 'Submit code' : 'Sign in to Bambu'}
+              </button>
+            </div>
+            <p className="muted">
+              Stores a fresh access token on the server volume. If Bambu emails a code, enter it here.
+              Optional Portainer <code>BAMBU_CLOUD_EMAIL</code>/<code>BAMBU_CLOUD_PASSWORD</code> can auto-relogin on 401 when 2FA is off.
+            </p>
+          </details>
           <details className="settings-details">
             <summary>Bambu setup notes</summary>
             <p className="muted">
@@ -342,6 +451,9 @@ export default function SettingsPage() {
             </p>
           </details>
           <div className="toolbar">
+            <button type="button" className="secondary" onClick={syncCloudNow} disabled={syncBusy}>
+              {syncBusy ? 'Syncing…' : 'Sync cloud now'}
+            </button>
             <button type="button" className="secondary" onClick={skipCloudHistory}>
               Clear Bambu history &amp; restore weights
             </button>

@@ -93,6 +93,7 @@ class PureretaHandler(SimpleHTTPRequestHandler):
                         "low_stock": dashboard.get_low_stock_alerts(),
                         "drying": dashboard.get_drying_alerts(),
                         "reorder": dashboard.get_reorder_suggestions(),
+                        "bambu_cloud": dashboard.get_bambu_cloud_alerts(),
                     },
                 )
             if parts == ["api", "settings"]:
@@ -243,6 +244,10 @@ class PureretaHandler(SimpleHTTPRequestHandler):
 
             if parts == ["api", "settings", "sync-cloud"]:
                 self.end_json(200, settings.trigger_cloud_sync())
+                return
+
+            if parts == ["api", "settings", "bambu-login"]:
+                self.end_json(200, settings.bambu_login(self.read_json_body()))
                 return
 
             if parts == ["api", "ams", "refresh"]:

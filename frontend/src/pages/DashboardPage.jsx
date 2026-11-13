@@ -50,6 +50,20 @@ export default function DashboardPage() {
         </div>
       </div>
 
+      {data.bambu_cloud_alerts?.length > 0 && (
+        <div className="card danger" style={{ marginTop: '1rem' }}>
+          <h2>Bambu cloud sync</h2>
+          <ul>
+            {data.bambu_cloud_alerts.map((alert) => (
+              <li key={`${alert.type}-${alert.at || alert.expires_at || alert.message}`}>
+                {alert.message}
+              </li>
+            ))}
+          </ul>
+          <Link className="button secondary" to="/settings">Fix in Settings → Printer</Link>
+        </div>
+      )}
+
       <div className="grid grid-2" style={{ marginTop: '1rem' }}>
         <div className="card">
           <h2>Low / no stock</h2>

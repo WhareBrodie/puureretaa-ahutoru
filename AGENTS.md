@@ -89,32 +89,33 @@ Bambu does **not** show this in Bambu Studio anymore. Two practical methods:
 3. Open **Cookies** → select `https://makerworld.com` (or `makerworld.com`).
 4. Find the cookie named **`token`** (not `refresh_token` or session IDs).
 5. Copy the full **Value** — a long string, often starting with `eyJ` (JWT).
-6. In Portainer, add env var `BAMBU_CLOUD_ACCESS_TOKEN` = paste that value (no `Bearer` prefix), **or** paste the same value in **Settings → Printer → Bambu cloud access token** (stored on the server volume; no Portainer needed).
-7. Redeploy the stack.
+6. In Portainer, add env var `BAMBU_CLOUD_ACCESS_TOKEN` = paste that value (no `Bearer` prefix), **or** paste the same value in **Settings → Printer → Bambu cloud access token** (stored on the server volume; no Portainer needed). The app **validates the token with Bambu before saving** and refuses dead tokens.
+7. Redeploy the stack only if you set the Portainer env var (app Settings save needs no redeploy).
 
-Token is usually valid ~3 months; repeat when sync stops with 401 errors.
+Token is usually valid ~90 days. Bambu’s refresh-token API is unreliable, so expiry cannot be fully automated for cookie tokens. The app mitigates this by:
+
+- Showing **Cloud auth** health + days-until-expiry on **Settings → Printer**
+- Raising a **Dashboard alert** when auth fails, the token is expired, or ≤14 days remain
+- Recording `cloud_auth_error` / `cloud_poll_ok_at` in sync diagnostics (no more silent empty polls)
+- Attempting token refresh + Portainer email/password re-login on 401 when those credentials work without 2FA
+- Offering **Sign in with Bambu email** (with verification code) under Settings → Printer
+
+Use **Sync cloud now** after fixing auth to import missed prints immediately.
 
 #### Method B — Email + password in Portainer (no 2FA only)
 
-Set `BAMBU_CLOUD_EMAIL` and `BAMBU_CLOUD_PASSWORD` in Portainer. Works if Bambu does not require email verification on login. If the sync worker logs *"login requires 2FA verification"*, use Method A instead.
+Set `BAMBU_CLOUD_EMAIL` and `BAMBU_CLOUD_PASSWORD` in Portainer. Works if Bambu does not require email verification on login. On 401 the sync worker will re-login and persist a fresh token. If login requires 2FA, use Method A or the in-app sign-in form instead.
 
-#### Method C — One-off login script (2FA via email code)
+#### Method C — In-app email sign-in (2FA via email code)
 
-If Method A is awkward, use a community login helper (handles the email verification code Bambu sends):
-
-```bash
-pip install bambu-lab-cloud-api
-python -c "from bambulab import BambuAuthenticator; print(BambuAuthenticator().login('you@email.com', 'your-password'))"
-```
-
-Copy the printed token into Portainer as `BAMBU_CLOUD_ACCESS_TOKEN`.
+**Settings → Printer → Sign in with Bambu email.** Enter account email/password; if Bambu emails a verification code, submit it there. Stores a validated access token on the server volume.
 
 ### Known limitations (read before relying on auto-sync)
 
 | Issue | Impact |
 |-------|--------|
-| **2FA on Bambu account** | Email/password login may fail; use Method A or C above |
-| **Token expiry** | Tokens last ~3 months; re-copy from MakerWorld cookie or re-run login when sync stops with 401 errors |
+| **2FA on Bambu account** | Portainer email/password cannot auto-relogin; use Method A or in-app sign-in (Method C) |
+| **Token expiry** | ~90 days; Dashboard/Settings warn before expiry and on 401 — still needs a fresh token/sign-in when Bambu rejects it |
 | **Cloud task detail 403** | Some jobs return only total weight, not per-filament breakdown → review queue or manual assignment |
 | **SD / non-cloud-sliced prints** | Often lack cloud filament metadata; needs FTPS fallback (printer IP reachable from deploy host) or manual log |
 | **Cloud MQTT reliability** | Bambu has changed cloud MQTT auth before; reconnect loop retries every 30s |

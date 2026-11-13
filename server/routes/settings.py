@@ -7,10 +7,13 @@ import os
 from datetime import datetime, timezone
 from typing import Any
 
-from bambu.cloud_sync import BambuCloudClient
+from bambu.cloud_sync import BambuCloudClient, CloudAuthError
 from bambu.credentials import (
+    cloud_auth_status,
     cloud_credentials_configured,
     cloud_token_source,
+    jwt_expiry_iso,
+    record_cloud_auth_ok,
     save_cloud_access_token,
 )
 from bambu.mqtt_client import BambuMqttClient
@@ -102,7 +105,12 @@ def get_settings() -> dict[str, Any]:
             "mqtt_last_pushall_has_ams": get_sync_state(conn, "mqtt_last_pushall_has_ams"),
             "mqtt_last_pushall_tray_count": get_sync_state(conn, "mqtt_last_pushall_tray_count"),
             "live_ams_state": get_sync_state(conn, "live_ams_state"),
+            "cloud_auth_ok_at": get_sync_state(conn, "cloud_auth_ok_at"),
+            "cloud_auth_error": get_sync_state(conn, "cloud_auth_error"),
+            "cloud_auth_error_at": get_sync_state(conn, "cloud_auth_error_at"),
+            "cloud_poll_ok_at": get_sync_state(conn, "cloud_poll_ok_at"),
         }
+        settings["bambu_cloud_auth"] = cloud_auth_status()
         return settings
 
 
@@ -118,7 +126,17 @@ def update_settings(data: dict[str, Any]) -> dict[str, Any]:
         if "bambu_cloud_access_token" in data:
             token = (data.get("bambu_cloud_access_token") or "").strip()
             if token:
-                save_cloud_access_token(token)
+                client = BambuCloudClient()
+                probe = client.validate_access_token(token)
+                if not probe.get("ok"):
+                    raise ValueError(probe.get("error") or "Bambu rejected this token")
+                refresh = (data.get("bambu_cloud_refresh_token") or "").strip() or None
+                save_cloud_access_token(
+                    token,
+                    refresh_token=refresh,
+                    expires_at=jwt_expiry_iso(token),
+                )
+                record_cloud_auth_ok()
             elif data.get("clear_bambu_cloud_access_token"):
                 save_cloud_access_token(None)
 
@@ -143,6 +161,18 @@ def update_settings(data: dict[str, Any]) -> dict[str, Any]:
                 ),
             )
     return get_settings()
+
+
+def bambu_login(data: dict[str, Any]) -> dict[str, Any]:
+    email = (data.get("email") or "").strip()
+    password = data.get("password") or ""
+    code = (data.get("code") or "").strip() or None
+    if not email or not password:
+        raise ValueError("email and password are required")
+    client = BambuCloudClient()
+    result = client.login(email, password, code=code)
+    settings = get_settings()
+    return {**result, "settings": settings}
 
 
 def skip_cloud_history(delete_imported: bool = False) -> dict[str, Any]:
@@ -176,11 +206,14 @@ def skip_cloud_history(delete_imported: bool = False) -> dict[str, Any]:
 
         client = BambuCloudClient()
         if client.is_configured():
-            cloud_task_ids = [
-                str(task.get("id") or task.get("taskId") or "")
-                for task in client.fetch_tasks(limit=50)
-            ]
-            ignored_tasks += ignore_bambu_tasks(conn, cloud_task_ids, "skip_cloud_history")
+            try:
+                cloud_task_ids = [
+                    str(task.get("id") or task.get("taskId") or "")
+                    for task in client.fetch_tasks(limit=50)
+                ]
+                ignored_tasks += ignore_bambu_tasks(conn, cloud_task_ids, "skip_cloud_history")
+            except CloudAuthError:
+                pass
 
     result = get_settings()
     result["cloud_sync_baseline"] = now
@@ -197,11 +230,12 @@ def trigger_cloud_sync() -> dict[str, Any]:
 
     worker = SyncWorker()
     if not worker.cloud.is_configured():
-        return {"ok": False, "error": "Bambu cloud is not configured"}
+        return {"ok": False, "error": "Bambu cloud is not configured", "settings": get_settings()}
     report = worker.poll_cloud_tasks()
     settings = get_settings()
     return {
         "ok": bool(report.get("ok")),
+        "error": report.get("error"),
         "sync": report,
         "settings": settings,
     }

@@ -9,10 +9,21 @@ from typing import Any
 
 import requests
 
-from bambu.credentials import cloud_credentials_configured, resolve_cloud_access_token
+from bambu.credentials import (
+    cloud_credentials_configured,
+    cloud_refresh_token_from_db,
+    record_cloud_auth_error,
+    record_cloud_auth_ok,
+    resolve_cloud_access_token,
+    save_cloud_access_token,
+)
 from db import ceil_usage_g
 
 logger = logging.getLogger("bambu.cloud")
+
+
+class CloudAuthError(RuntimeError):
+    """Bambu rejected cloud credentials (expired/revoked token or failed login)."""
 
 # Bambu Studio TaskState enum (numeric status on /my/tasks hits).
 TASK_STATUS_PRINT_SUCCESS = 6
@@ -105,9 +116,113 @@ class BambuCloudClient:
         self._session = requests.Session()
         self._user_id: int | None = None
         self._devices: list[dict[str, Any]] | None = None
+        self._refresh_attempted = False
+        self._password_relogin_attempted = False
 
     def is_configured(self) -> bool:
         return cloud_credentials_configured()
+
+    def _persist_login_tokens(self, data: dict[str, Any]) -> str | None:
+        access = data.get("accessToken") or data.get("access_token")
+        if not access:
+            return None
+        refresh = data.get("refreshToken") or data.get("refresh_token")
+        save_cloud_access_token(
+            access,
+            refresh_token=refresh,
+            expires_in=data.get("expiresIn") or data.get("expires_in"),
+        )
+        self._session_token = access
+        record_cloud_auth_ok()
+        return access
+
+    def login(
+        self,
+        email: str,
+        password: str,
+        *,
+        code: str | None = None,
+    ) -> dict[str, Any]:
+        """Login with email/password, optionally a verification code. Persists tokens on success."""
+        payload: dict[str, Any] = {"account": email.strip(), "password": password}
+        if code:
+            payload["code"] = code.strip()
+        resp = self._session.post(
+            f"{API_BASE}/v1/user-service/user/login",
+            json=payload,
+            timeout=30,
+        )
+        resp.raise_for_status()
+        data = resp.json() if resp.content else {}
+        if data.get("loginType") == "verifyCode":
+            return {
+                "ok": False,
+                "needs_code": True,
+                "error": "Bambu sent a verification code to your email. Enter it to finish sign-in.",
+            }
+        access = self._persist_login_tokens(data)
+        if not access:
+            message = data.get("message") or data.get("error") or "Login did not return an access token"
+            record_cloud_auth_error(str(message))
+            return {"ok": False, "needs_code": False, "error": str(message)}
+        return {"ok": True, "needs_code": False, "token_saved": True}
+
+    def _login_with_env_password(self) -> str | None:
+        email = os.environ.get("BAMBU_CLOUD_EMAIL", "").strip()
+        password = os.environ.get("BAMBU_CLOUD_PASSWORD", "").strip()
+        if not email or not password:
+            return None
+        try:
+            result = self.login(email, password)
+            if result.get("ok"):
+                return resolve_cloud_access_token()
+            if result.get("needs_code"):
+                logger.error(
+                    "Bambu cloud login requires 2FA verification; use Settings sign-in or paste a MakerWorld token"
+                )
+                record_cloud_auth_error("login requires 2FA verification code")
+            else:
+                record_cloud_auth_error(result.get("error") or "email/password login failed")
+            return None
+        except Exception as exc:
+            logger.exception("Bambu cloud login failed")
+            record_cloud_auth_error(f"email/password login failed: {exc}")
+            return None
+
+    def _try_refresh_token(self) -> str | None:
+        refresh = cloud_refresh_token_from_db() or resolve_cloud_access_token()
+        if not refresh:
+            return None
+        try:
+            resp = self._session.post(
+                f"{API_BASE}/v1/user-service/user/refreshtoken",
+                json={"refreshToken": refresh},
+                timeout=30,
+            )
+            if resp.status_code == 401:
+                return None
+            resp.raise_for_status()
+            data = resp.json() if resp.content else {}
+            return self._persist_login_tokens(data)
+        except Exception:
+            logger.exception("Bambu cloud token refresh failed")
+            return None
+
+    def _recover_from_401(self) -> str | None:
+        """Attempt refresh, then email/password re-login. Returns a new token or None."""
+        if not self._refresh_attempted:
+            self._refresh_attempted = True
+            token = self._try_refresh_token()
+            if token:
+                logger.info("Recovered Bambu cloud auth via refresh token")
+                return token
+        if not self._password_relogin_attempted:
+            self._password_relogin_attempted = True
+            token = self._login_with_env_password()
+            if token:
+                logger.info("Recovered Bambu cloud auth via email/password")
+                return token
+        return None
 
     def _ensure_token(self) -> str | None:
         token = resolve_cloud_access_token()
@@ -115,28 +230,7 @@ class BambuCloudClient:
             return token
         if self._session_token:
             return self._session_token
-        email = os.environ.get("BAMBU_CLOUD_EMAIL")
-        password = os.environ.get("BAMBU_CLOUD_PASSWORD")
-        if not email or not password:
-            return None
-        try:
-            resp = self._session.post(
-                f"{API_BASE}/v1/user-service/user/login",
-                json={"account": email, "password": password},
-                timeout=30,
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            if data.get("loginType") == "verifyCode":
-                logger.error(
-                    "Bambu cloud login requires 2FA verification; set a MakerWorld access token instead"
-                )
-                return None
-            self._session_token = data.get("accessToken") or data.get("access_token")
-            return self._session_token
-        except Exception:
-            logger.exception("Bambu cloud login failed")
-            return None
+        return self._login_with_env_password()
 
     def _invalidate_session(self) -> None:
         self._session_token = None
@@ -149,29 +243,100 @@ class BambuCloudClient:
             return {}
         return {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
 
+    def _request_with_auth(
+        self,
+        method: str,
+        url: str,
+        *,
+        params: dict[str, Any] | None = None,
+        json_body: dict[str, Any] | None = None,
+        timeout: int = 30,
+    ) -> requests.Response:
+        resp = self._session.request(
+            method,
+            url,
+            headers=self._headers(),
+            params=params,
+            json=json_body,
+            timeout=timeout,
+        )
+        if resp.status_code != 401:
+            return resp
+        self._invalidate_session()
+        recovered = self._recover_from_401()
+        if not recovered:
+            message = "Bambu cloud token rejected (401). Paste a fresh MakerWorld token or sign in again."
+            record_cloud_auth_error(message)
+            raise CloudAuthError(message)
+        resp = self._session.request(
+            method,
+            url,
+            headers=self._headers(),
+            params=params,
+            json=json_body,
+            timeout=timeout,
+        )
+        if resp.status_code == 401:
+            message = "Bambu cloud token rejected (401). Paste a fresh MakerWorld token or sign in again."
+            record_cloud_auth_error(message)
+            raise CloudAuthError(message)
+        return resp
+
+    def validate_access_token(self, token: str) -> dict[str, Any]:
+        """Probe a candidate token before saving it."""
+        clean = (token or "").strip()
+        if not clean:
+            return {"ok": False, "error": "Token is empty"}
+        try:
+            resp = self._session.get(
+                f"{API_BASE}/v1/design-user-service/my/preference",
+                headers={"Authorization": f"Bearer {clean}", "Content-Type": "application/json"},
+                timeout=30,
+            )
+            if resp.status_code == 401:
+                return {"ok": False, "error": "Bambu rejected this token (expired or invalid)"}
+            resp.raise_for_status()
+            return {"ok": True}
+        except CloudAuthError as exc:
+            return {"ok": False, "error": str(exc)}
+        except Exception as exc:
+            return {"ok": False, "error": f"Could not validate token: {exc}"}
+
+    def probe_auth(self) -> dict[str, Any]:
+        if not self.is_configured():
+            return {"ok": False, "error": "cloud not configured"}
+        try:
+            resp = self._request_with_auth(
+                "GET",
+                f"{API_BASE}/v1/design-user-service/my/preference",
+            )
+            resp.raise_for_status()
+            record_cloud_auth_ok()
+            return {"ok": True}
+        except CloudAuthError as exc:
+            return {"ok": False, "error": str(exc)}
+        except Exception as exc:
+            record_cloud_auth_error(str(exc))
+            return {"ok": False, "error": str(exc)}
+
     def get_user_id(self) -> int | None:
         if self._user_id is not None:
             return self._user_id
         if not self.is_configured():
             return None
         try:
-            resp = self._session.get(
+            resp = self._request_with_auth(
+                "GET",
                 f"{API_BASE}/v1/design-user-service/my/preference",
-                headers=self._headers(),
-                timeout=30,
             )
-            if resp.status_code == 401:
-                self._invalidate_session()
-                resp = self._session.get(
-                    f"{API_BASE}/v1/design-user-service/my/preference",
-                    headers=self._headers(),
-                    timeout=30,
-                )
             resp.raise_for_status()
+            record_cloud_auth_ok()
             uid = resp.json().get("uid")
             if isinstance(uid, int):
                 self._user_id = uid
             return self._user_id
+        except CloudAuthError:
+            raise
         except Exception:
             logger.exception("Failed to fetch Bambu user id")
             return None
@@ -185,23 +350,18 @@ class BambuCloudClient:
         if not self.is_configured():
             return []
         try:
-            resp = self._session.get(
+            resp = self._request_with_auth(
+                "GET",
                 f"{API_BASE}/v1/iot-service/api/user/bind",
-                headers=self._headers(),
-                timeout=30,
             )
-            if resp.status_code == 401:
-                self._invalidate_session()
-                resp = self._session.get(
-                    f"{API_BASE}/v1/iot-service/api/user/bind",
-                    headers=self._headers(),
-                    timeout=30,
-                )
             resp.raise_for_status()
+            record_cloud_auth_ok()
             data = resp.json()
             devices = data.get("devices") or []
             self._devices = devices if isinstance(devices, list) else []
             return self._devices
+        except CloudAuthError:
+            raise
         except Exception:
             logger.exception("Failed to fetch bound Bambu devices")
             return []
@@ -250,27 +410,21 @@ class BambuCloudClient:
         if after:
             params["after"] = after
         try:
-            resp = self._session.get(
+            resp = self._request_with_auth(
+                "GET",
                 f"{API_BASE}/v1/user-service/my/tasks",
-                headers=self._headers(),
                 params=params,
-                timeout=30,
             )
-            if resp.status_code == 401:
-                self._invalidate_session()
-                resp = self._session.get(
-                    f"{API_BASE}/v1/user-service/my/tasks",
-                    headers=self._headers(),
-                    params=params,
-                    timeout=30,
-                )
             resp.raise_for_status()
+            record_cloud_auth_ok()
             data = resp.json()
             if isinstance(data, dict):
                 return data.get("hits") or data.get("tasks") or data.get("data") or []
             if isinstance(data, list):
                 return data
             return []
+        except CloudAuthError:
+            raise
         except Exception:
             logger.exception("Failed to fetch Bambu cloud tasks")
             return []
@@ -279,15 +433,16 @@ class BambuCloudClient:
         if not self.is_configured() or not task_id:
             return None
         try:
-            resp = self._session.get(
+            resp = self._request_with_auth(
+                "GET",
                 f"{API_BASE}/v1/user-service/my/task/{task_id}",
-                headers=self._headers(),
-                timeout=30,
             )
             if resp.status_code in {403, 404}:
                 return None
             resp.raise_for_status()
             return resp.json()
+        except CloudAuthError:
+            raise
         except Exception:
             logger.exception("Failed to fetch task detail %s", task_id)
             return None

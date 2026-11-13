@@ -16,10 +16,12 @@ if str(SERVER_DIR) not in sys.path:
 
 from bambu.cloud_sync import (
     BambuCloudClient,
+    CloudAuthError,
     normalize_cloud_task_status,
     task_completion_percent,
     task_is_importable,
 )
+from bambu.credentials import record_cloud_poll_ok
 from bambu.ftps_gcode import BambuFtpsClient, parse_filament_usage
 from bambu.mqtt_client import BambuMqttClient
 from bambu.print_processor import process_print_job, store_live_state
@@ -52,7 +54,11 @@ class SyncWorker:
 
         usages: list[dict] = []
         source = "mqtt"
-        task = self._find_matching_cloud_task(event)
+        try:
+            task = self._find_matching_cloud_task(event)
+        except CloudAuthError as exc:
+            logger.error("MQTT finish import blocked by cloud auth failure: %s", exc)
+            return
         bambu_task_id = None
         if task:
             bambu_task_id = str(task.get("id") or task.get("taskId") or "")
@@ -132,8 +138,13 @@ class SyncWorker:
             ensure_cloud_sync_baseline(conn)
         # Fetch recent tasks without the `after` cursor — Bambu expects a task id there,
         # and we previously stored ISO timestamps which skipped finished jobs.
-        tasks = self.cloud.fetch_tasks(limit=50)
+        try:
+            tasks = self.cloud.fetch_tasks(limit=50)
+        except CloudAuthError as exc:
+            logger.error("Cloud poll blocked by auth failure: %s", exc)
+            return {"ok": False, "error": str(exc), "auth_error": True, "examined": [], "imported": []}
         if not tasks:
+            record_cloud_poll_ok()
             return {"ok": True, "examined": [], "imported": []}
 
         examined: list[dict[str, Any]] = []
@@ -242,6 +253,7 @@ class SyncWorker:
             with connect() as conn:
                 set_sync_state(conn, "cloud_tasks_after", task_id)
 
+        record_cloud_poll_ok()
         # Newest-first for the API response
         examined_newest_first = list(reversed(examined))
         return {
@@ -271,7 +283,9 @@ class SyncWorker:
         logger.info("Sync worker started")
         while True:
             try:
-                self.poll_cloud_tasks()
+                report = self.poll_cloud_tasks()
+                if report.get("auth_error"):
+                    logger.error("Cloud auth failed — sync will keep retrying: %s", report.get("error"))
             except Exception:
                 logger.exception("Cloud poll failed")
             time.sleep(self.cloud_interval)

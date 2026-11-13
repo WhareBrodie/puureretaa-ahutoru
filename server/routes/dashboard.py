@@ -6,6 +6,7 @@ import json
 from datetime import datetime, timezone
 from typing import Any
 
+from bambu.credentials import cloud_auth_status, cloud_credentials_configured
 from db import connect, get_setting, rows_to_dicts
 from routes.ams import get_live_printer_state
 from routes.prints import list_prints
@@ -114,6 +115,65 @@ def get_drying_alerts(days_threshold: int = 30) -> list[dict[str, Any]]:
     return alerts
 
 
+def get_bambu_cloud_alerts() -> list[dict[str, Any]]:
+    """Surface dead/expiring cloud auth so print sync failures are not silent."""
+    if not cloud_credentials_configured():
+        return []
+    alerts: list[dict[str, Any]] = []
+    auth = cloud_auth_status()
+    if auth.get("auth_error"):
+        alerts.append(
+            {
+                "type": "bambu_cloud_auth",
+                "severity": "error",
+                "message": auth["auth_error"],
+                "at": auth.get("auth_error_at"),
+            }
+        )
+    elif auth.get("expired"):
+        alerts.append(
+            {
+                "type": "bambu_cloud_auth",
+                "severity": "error",
+                "message": "Bambu cloud token has expired — paste a fresh MakerWorld token or sign in again.",
+                "expires_at": auth.get("expires_at"),
+            }
+        )
+    elif auth.get("days_left") is not None and auth["days_left"] <= 14:
+        alerts.append(
+            {
+                "type": "bambu_cloud_auth",
+                "severity": "warning",
+                "message": f"Bambu cloud token expires in {auth['days_left']} day(s).",
+                "expires_at": auth.get("expires_at"),
+                "days_left": auth["days_left"],
+            }
+        )
+
+    poll_ok = auth.get("poll_ok_at")
+    mqtt_at = auth.get("mqtt_last_message_at")
+    stale_hours = 36
+    for label, stamp in (("cloud poll", poll_ok), ("MQTT", mqtt_at)):
+        if not stamp:
+            continue
+        try:
+            dt = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        age_h = (datetime.now(timezone.utc) - dt).total_seconds() / 3600
+        if age_h >= stale_hours and not any(a.get("severity") == "error" for a in alerts):
+            alerts.append(
+                {
+                    "type": "bambu_cloud_stale",
+                    "severity": "warning",
+                    "message": f"No successful Bambu {label} for {int(age_h)}h — check Settings → Printer.",
+                    "at": stamp,
+                }
+            )
+            break
+    return alerts
+
+
 def get_dashboard() -> dict[str, Any]:
     spools = list_spools()
     pending = list_prints(pending_review_only=True)
@@ -124,6 +184,7 @@ def get_dashboard() -> dict[str, Any]:
         "pending_reviews": len(pending),
         "low_stock_alerts": get_low_stock_alerts(),
         "drying_alerts": get_drying_alerts()[:10],
+        "bambu_cloud_alerts": get_bambu_cloud_alerts(),
         "live_printer": live.get("printer"),
         "live_ams": live.get("ams"),
         "recent_prints": list_prints()[:5],

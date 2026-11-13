@@ -350,13 +350,16 @@ def refresh_cloud_print_usage_links(conn, job: dict[str, Any]) -> tuple[int, lis
     if job.get("source") != "cloud" or not job.get("bambu_task_id"):
         return 0, []
 
-    from bambu.cloud_sync import BambuCloudClient
+    from bambu.cloud_sync import BambuCloudClient, CloudAuthError
 
     cloud = BambuCloudClient()
     if not cloud.is_configured():
         return 0, []
 
-    detail = cloud.fetch_task_for_deduction(str(job["bambu_task_id"]))
+    try:
+        detail = cloud.fetch_task_for_deduction(str(job["bambu_task_id"]))
+    except CloudAuthError:
+        return relink_usages_from_ams_mappings(conn, job)
     if not detail:
         return relink_usages_from_ams_mappings(conn, job)
 
