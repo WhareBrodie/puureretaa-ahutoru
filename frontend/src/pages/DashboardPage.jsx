@@ -113,7 +113,10 @@ export default function DashboardPage() {
       {data.pending_reviews > 0 && (
         <div className="card" style={{ marginTop: '1rem' }}>
           <h2>Action needed</h2>
-          <p>{data.pending_reviews} print(s) need spool assignment before filament can be deducted.</p>
+          <p>
+            {data.pending_reviews} print(s) need review before filament can be deducted
+            (ambiguous AMS mapping or a mid-print spool swap).
+          </p>
           <Link className="button secondary" to="/prints?review=1">Open review queue</Link>
         </div>
       )}

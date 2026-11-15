@@ -33,21 +33,40 @@ def _attach_usages(conn, print_job: dict[str, Any]) -> dict[str, Any]:
         FROM print_usages pu
         LEFT JOIN spools s ON s.id = pu.spool_id
         WHERE pu.print_job_id = ?
-        ORDER BY pu.ams_slot
+        ORDER BY pu.ams_slot, CASE pu.split_role WHEN 'old' THEN 0 WHEN 'new' THEN 1 ELSE 2 END, pu.id
         """,
         (print_job["id"],),
     ).fetchall()
     usage_dicts = rows_to_dicts(usages)
+    swap_hints: dict[int, float | None] = {}
+    task_id = print_job.get("bambu_task_id")
+    if task_id:
+        for row in conn.execute(
+            """
+            SELECT ams_slot, old_remaining_g
+            FROM bambu_print_slot_swaps
+            WHERE task_id = ?
+            """,
+            (str(task_id),),
+        ).fetchall():
+            swap_hints[int(row["ams_slot"])] = row["old_remaining_g"]
     total_cost = 0.0
     has_cost = False
+    has_mid_print_swap = False
     for usage in usage_dicts:
         cost = _usage_cost(usage.get("used_g"), usage.get("purchase_price"), usage.get("initial_weight_g"))
         usage["cost"] = cost
+        if usage.get("split_group"):
+            has_mid_print_swap = True
+            slot = usage.get("ams_slot")
+            if slot is not None and int(slot) in swap_hints:
+                usage["swap_old_remaining_g"] = swap_hints[int(slot)]
         if cost is not None:
             total_cost += cost
             has_cost = True
     print_job["usages"] = usage_dicts
     print_job["total_cost"] = round(total_cost, 2) if has_cost else None
+    print_job["has_mid_print_swap"] = has_mid_print_swap
     return print_job
 
 
@@ -227,6 +246,35 @@ def resolve_print_review_v2(print_id: int, data: dict[str, Any]) -> dict[str, An
         if not job:
             raise KeyError("print not found")
 
+        # Validate mid-print split groups still sum to their original total when used_g is edited.
+        pending_usages = conn.execute(
+            "SELECT * FROM print_usages WHERE print_job_id = ?",
+            (print_id,),
+        ).fetchall()
+        by_id = {int(row["id"]): row for row in pending_usages}
+        proposed_used: dict[int, float] = {}
+        for assignment in assignments:
+            usage_id = assignment.get("usage_id")
+            if usage_id is None or int(usage_id) not in by_id:
+                continue
+            if "used_g" in assignment and assignment.get("used_g") is not None:
+                proposed_used[int(usage_id)] = ceil_usage_g(float(assignment["used_g"]))
+            else:
+                proposed_used[int(usage_id)] = float(by_id[int(usage_id)]["used_g"] or 0)
+
+        groups: dict[str, list[Any]] = {}
+        for row in pending_usages:
+            group = row["split_group"]
+            if group:
+                groups.setdefault(group, []).append(row)
+        for group, rows in groups.items():
+            original_total = round(sum(float(r["used_g"] or 0) for r in rows), 1)
+            new_total = round(sum(proposed_used.get(int(r["id"]), float(r["used_g"] or 0)) for r in rows), 1)
+            if abs(new_total - original_total) > 0.05:
+                raise ValueError(
+                    f"Mid-print split grams must sum to {original_total}g (got {new_total}g)"
+                )
+
         for assignment in assignments:
             usage_id = assignment.get("usage_id")
             spool_id = assignment.get("spool_id")
@@ -237,11 +285,14 @@ def resolve_print_review_v2(print_id: int, data: dict[str, Any]) -> dict[str, An
             if not usage:
                 continue
             old_spool_id = usage["spool_id"]
+            new_used_g = proposed_used.get(int(usage_id), float(usage["used_g"] or 0))
             if (
-                spool_id
+                usage["filament_deducted"]
                 and old_spool_id
-                and usage["filament_deducted"]
-                and int(old_spool_id) != int(spool_id)
+                and (
+                    (spool_id and int(old_spool_id) != int(spool_id))
+                    or abs(new_used_g - float(usage["used_g"] or 0)) > 0.05
+                )
             ):
                 grams = scaled_deduction_g(float(usage["used_g"]), float(job["completion_percent"]))
                 if grams > 0:
@@ -261,32 +312,50 @@ def resolve_print_review_v2(print_id: int, data: dict[str, Any]) -> dict[str, An
             ams_slot = assignment.get("ams_slot")
             if ams_slot is not None:
                 conn.execute(
-                    "UPDATE print_usages SET spool_id = ?, ams_slot = ?, resolved = ? WHERE id = ?",
-                    (spool_id, int(ams_slot), 1 if spool_id else 0, usage_id),
+                    """
+                    UPDATE print_usages
+                    SET spool_id = ?, ams_slot = ?, used_g = ?, resolved = ?
+                    WHERE id = ?
+                    """,
+                    (spool_id, int(ams_slot), new_used_g, 1 if spool_id else 0, usage_id),
                 )
             else:
                 conn.execute(
-                    "UPDATE print_usages SET spool_id = ?, resolved = ? WHERE id = ?",
-                    (spool_id, 1 if spool_id else 0, usage_id),
+                    """
+                    UPDATE print_usages
+                    SET spool_id = ?, used_g = ?, resolved = ?
+                    WHERE id = ?
+                    """,
+                    (spool_id, new_used_g, 1 if spool_id else 0, usage_id),
                 )
-            if spool_id and not skip and usage["used_g"] > 0:
+            if spool_id and not skip and new_used_g > 0:
                 deduct_print_usage(
                     conn,
                     usage_id=int(usage_id),
                     spool_id=int(spool_id),
-                    used_g=float(usage["used_g"]),
+                    used_g=float(new_used_g),
                     completion_percent=float(job["completion_percent"]),
                 )
 
+        # Refresh job total after possible used_g edits.
+        total_used = conn.execute(
+            "SELECT COALESCE(SUM(used_g), 0) AS total FROM print_usages WHERE print_job_id = ?",
+            (print_id,),
+        ).fetchone()["total"]
         unresolved = conn.execute(
-            "SELECT COUNT(*) AS c FROM print_usages WHERE print_job_id = ? AND spool_id IS NULL",
+            """
+            SELECT COUNT(*) AS c FROM print_usages
+            WHERE print_job_id = ? AND spool_id IS NULL AND used_g > 0
+            """,
             (print_id,),
         ).fetchone()["c"]
         conn.execute(
             """
-            UPDATE print_jobs SET needs_review = ?, review_note = ? WHERE id = ?
+            UPDATE print_jobs
+            SET needs_review = ?, review_note = ?, total_used_g = ?
+            WHERE id = ?
             """,
-            (1 if unresolved else 0, data.get("review_note"), print_id),
+            (1 if unresolved else 0, data.get("review_note"), total_used, print_id),
         )
     return get_print(print_id)
 
@@ -342,6 +411,9 @@ def apply_missing_deductions(print_id: int) -> dict[str, Any]:
         deducted: list[dict[str, Any]] = []
         for usage in usages:
             if not usage["spool_id"] or usage["used_g"] <= 0 or usage["filament_deducted"]:
+                continue
+            # Mid-print splits stay in review until grams are confirmed.
+            if usage["split_group"] and job["needs_review"]:
                 continue
             grams = deduct_print_usage(
                 conn,

@@ -65,7 +65,14 @@ Instead, sync:
 3. If mapping is still unknown, matches your **current AMS slot mappings** by material (including support) and colour
 4. If still ambiguous → **review queue** (no silent wrong deduction)
 
-Each usage line tracks `filament_deducted` so restore/delete/review cannot double-deduct. **Prints → Deduct** re-fetches the cloud task, re-applies stored/cloud mapping, restores a wrongly deducted spool if the link changed, then deducts from the correct mapped spool.
+**Mid-print spool runout / replacement:** Bambu only reports total `used_g` per filament for the finished job, so the app cannot know exact grams from the empty vs replacement spool. While a print is RUNNING/PAUSE, a pending swap is recorded when:
+
+1. Live MQTT tray **diverges from the AMS mapping baseline** (RFID / type / colour mismatch), or
+2. You **remap the AMS slot** to a different spool
+
+On import, that slot becomes **two review usage rows** (old + new) with a suggested split of `min(inventory remaining at detect, total used)` on the emptying spool and the remainder on the replacement. The print stays in the **review queue** — nothing is auto-deducted for those rows. Confirm (and edit) the grams in Review before deducting; wrong inventory remaining must not silently over-charge the new spool. Relink / Deduct will not collapse a mid-print split back onto a single spool.
+
+Each usage line tracks `filament_deducted` so restore/delete/review cannot double-deduct. **Prints → Deduct** re-fetches the cloud task, re-applies stored/cloud mapping, restores a wrongly deducted spool if the link changed, then deducts from the correct mapped spool (skips mid-print split rows while the print still needs review).
 
 Print usage is always rounded **up** to one decimal place for display and spool deduction (e.g. 11.61 g → 11.7 g).
 
@@ -175,7 +182,7 @@ server/
   purereta_server.py      Static files + /api/*
   db.py                   SQLite + migrations
   routes/                 spools, prints, projects, ams, dashboard, settings, csv_io
-  bambu/                  mqtt_client, cloud_sync, ftps_gcode, print_processor, sync_worker
+  bambu/                  mqtt_client, cloud_sync, ftps_gcode, print_processor, sync_worker, slot_swaps
   entrypoint.sh           Init DB + start sync worker + API
 data/
   migrations/001_init.sql
@@ -185,6 +192,7 @@ data/
   migrations/005_spool_weigh_profiles.sql
   migrations/006_bambu_rfid_tray_idx.sql
   migrations/010_filament_labels.sql
+  migrations/011_print_slot_swaps.sql
   seed_empty_spool_weights.json
   labels/                   Uploaded filament label PNGs (server volume; gitignored)
 Dockerfile                Multi-stage: npm build → Python Alpine

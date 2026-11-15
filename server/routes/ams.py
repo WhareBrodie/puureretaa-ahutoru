@@ -178,6 +178,11 @@ def update_ams_slot(slot: int, data: dict[str, Any], printer_id: int | None = No
             printer_id = printer["id"] if printer else 1
         spool_id = data.get("spool_id")
         tray_override = data.get("tray") if isinstance(data.get("tray"), dict) else None
+        previous = conn.execute(
+            "SELECT spool_id FROM ams_slot_mappings WHERE printer_id = ? AND slot = ?",
+            (printer_id, slot),
+        ).fetchone()
+        old_spool_id = int(previous["spool_id"]) if previous and previous["spool_id"] else None
         conn.execute(
             """
             INSERT INTO ams_slot_mappings (printer_id, slot, spool_id, updated_at)
@@ -188,6 +193,19 @@ def update_ams_slot(slot: int, data: dict[str, Any], printer_id: int | None = No
             """,
             (printer_id, slot, spool_id),
         )
+        from bambu.slot_swaps import active_print_context, record_manual_remap_swap
+
+        ctx = active_print_context(conn)
+        new_spool_id = int(spool_id) if spool_id else None
+        if ctx and (old_spool_id or new_spool_id) and old_spool_id != new_spool_id:
+            record_manual_remap_swap(
+                conn,
+                task_id=ctx["task_id"],
+                ams_slot=slot,
+                old_spool_id=old_spool_id,
+                new_spool_id=new_spool_id,
+                mc_percent=ctx.get("mc_percent"),
+            )
         mapping = conn.execute(
             """
             SELECT mqtt_tag_uid, mqtt_tray_info_idx, mqtt_tray_type, mqtt_tray_color

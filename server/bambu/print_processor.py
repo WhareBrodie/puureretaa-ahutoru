@@ -3,10 +3,16 @@
 from __future__ import annotations
 
 import logging
+import uuid
 from datetime import datetime, timezone
 from typing import Any
 
 from bambu.filament_rfid import lookup_filament, pick_active_spool, sync_slot_for_tray
+from bambu.slot_swaps import (
+    get_open_swap,
+    mark_swap_consumed,
+    suggest_split_grams,
+)
 from bambu.task_guard import (
     is_before_baseline,
     is_bambu_task_ignored,
@@ -318,6 +324,9 @@ def relink_usages_from_ams_mappings(conn, job: dict[str, Any]) -> tuple[int, lis
     updated = 0
 
     for row in pending:
+        if row["split_group"]:
+            # Mid-print splits are reviewed explicitly — do not collapse to one spool.
+            continue
         spool_id, slot = resolve_spool_from_mapped_slots(
             conn,
             printer_id,
@@ -386,7 +395,8 @@ def refresh_cloud_print_usage_links(conn, job: dict[str, Any]) -> tuple[int, lis
     printer_id = int(job.get("printer_id") or 1)
     completion_percent = float(job.get("completion_percent") or 100.0)
 
-    for row in pending:
+    non_split = [row for row in pending if not row["split_group"]]
+    for row in non_split:
         match = None
         for fresh in weighted_fresh:
             if fresh.get("used_g") == row["used_g"] and (
@@ -396,7 +406,7 @@ def refresh_cloud_print_usage_links(conn, job: dict[str, Any]) -> tuple[int, lis
             ):
                 match = fresh
                 break
-        if not match and len(weighted_fresh) == 1 and len(pending) == 1:
+        if not match and len(weighted_fresh) == 1 and len(non_split) == 1:
             match = weighted_fresh[0]
 
         if not match:
@@ -473,12 +483,65 @@ def process_print_job(
                     spool_id = matched_spool
                     if slot is None:
                         slot = matched_slot
+
+            used_g = ceil_usage_g(float(usage.get("used_g") or 0))
+            swap = None
+            if bambu_task_id and slot is not None and used_g > 0:
+                swap = get_open_swap(conn, str(bambu_task_id), int(slot))
+
+            if swap:
+                old_g, new_g = suggest_split_grams(used_g, swap.get("old_remaining_g"))
+                split_group = str(uuid.uuid4())
+                old_spool = swap.get("old_spool_id")
+                new_spool = swap.get("new_spool_id")
+                # Prefer swap's new spool; fall back to current slot mapping only if unset.
+                if not new_spool and spool_id and (
+                    not old_spool or int(spool_id) != int(old_spool)
+                ):
+                    new_spool = spool_id
+                resolved_usages.append(
+                    {
+                        **usage,
+                        "ams_slot": slot,
+                        "spool_id": int(old_spool) if old_spool else None,
+                        "resolved": bool(old_spool),
+                        "used_g": old_g,
+                        "used_m": None,
+                        "split_group": split_group,
+                        "split_role": "old",
+                        "skip_auto_deduct": True,
+                        "swap_id": swap["id"],
+                        "swap_old_remaining_g": swap.get("old_remaining_g"),
+                    }
+                )
+                resolved_usages.append(
+                    {
+                        **usage,
+                        "ams_slot": slot,
+                        "spool_id": int(new_spool) if new_spool else None,
+                        "resolved": bool(new_spool),
+                        "used_g": new_g,
+                        "used_m": None,
+                        "split_group": split_group,
+                        "split_role": "new",
+                        "skip_auto_deduct": True,
+                        "swap_id": swap["id"],
+                        "swap_old_remaining_g": swap.get("old_remaining_g"),
+                    }
+                )
+                needs_review = True
+                mark_swap_consumed(conn, int(swap["id"]))
+                continue
+
             item = {
                 **usage,
                 "ams_slot": slot,
                 "spool_id": spool_id,
                 "resolved": bool(spool_id),
-                "used_g": ceil_usage_g(float(usage.get("used_g") or 0)),
+                "used_g": used_g,
+                "split_group": None,
+                "split_role": None,
+                "skip_auto_deduct": False,
             }
             if not spool_id:
                 needs_review = True
@@ -517,8 +580,8 @@ def process_print_job(
                 """
                 INSERT INTO print_usages (
                     print_job_id, ams_slot, spool_id, material, color, used_g, used_m, resolved,
-                    filament_deducted
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
+                    filament_deducted, split_group, split_role
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
                 """,
                 (
                     print_id,
@@ -529,6 +592,8 @@ def process_print_job(
                     usage.get("used_g"),
                     usage.get("used_m"),
                     1 if usage.get("spool_id") else 0,
+                    usage.get("split_group"),
+                    usage.get("split_role"),
                 ),
             )
             usage_id = cur.lastrowid
@@ -536,6 +601,7 @@ def process_print_job(
                 usage.get("spool_id")
                 and deduct
                 and not skip_deduct
+                and not usage.get("skip_auto_deduct")
                 and float(usage.get("used_g") or 0) > 0
             ):
                 deduct_print_usage(
@@ -575,3 +641,12 @@ def store_live_state(printer_state: dict[str, Any], trays: dict[str, Any]) -> No
         with connect() as conn:
             for slot_str, tray in trays.items():
                 sync_slot_for_tray(conn, 1, int(slot_str), tray)
+            from bambu.slot_swaps import detect_rfid_swaps_from_trays
+
+            # Detect before baseline is rewritten — mismatch uses mapping baseline vs live tray.
+            detect_rfid_swaps_from_trays(
+                conn,
+                printer_id=1,
+                trays=trays,
+                printer_state=printer_state,
+            )

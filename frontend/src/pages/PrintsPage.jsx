@@ -45,6 +45,7 @@ export default function PrintsPage() {
       (print.usages || []).some((usage) => usage.used_g > 0));
 
   const showDeduct = (print) =>
+    !(print.needs_review && print.has_mid_print_swap) &&
     ['cloud', 'mqtt', 'ftps'].includes(print.source) &&
     (print.usages || []).some((usage) => usage.used_g > 0);
 
@@ -73,7 +74,11 @@ export default function PrintsPage() {
       <div className="page-header">
         <div>
           <h1>{reviewOnly ? 'Review queue' : 'Prints'}</h1>
-          <p>{reviewOnly ? 'Assign spools for ambiguous filament usage' : 'Automatic Bambu imports and manual logs'}</p>
+          <p>
+            {reviewOnly
+              ? 'Assign spools and confirm mid-print swap splits before deducting'
+              : 'Automatic Bambu imports and manual logs'}
+          </p>
         </div>
         <button onClick={() => setShowManual(true)}>Log manual print</button>
       </div>
@@ -105,7 +110,13 @@ export default function PrintsPage() {
                 </td>
                 <td>{print.source}</td>
                 <td>
-                  {print.needs_review ? <span className="badge warning">Needs review</span> : print.status}
+                  {print.needs_review ? (
+                    <span className="badge warning">
+                      {print.has_mid_print_swap ? 'Mid-print swap' : 'Needs review'}
+                    </span>
+                  ) : (
+                    print.status
+                  )}
                 </td>
                 <td>{formatUsageG(print.total_used_g)}</td>
                 <td>{print.total_cost != null ? formatMoney(print.total_cost) : '—'}</td>
