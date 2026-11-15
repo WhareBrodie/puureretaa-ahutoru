@@ -68,7 +68,11 @@ export default function FilamentDetailPage() {
   const displayName = filament.color_name || `${filament.brand} ${filament.material}`;
   const previewUrl = labelUrl(label);
   const downloadUrl = labelDownloadUrl(label);
-  const isImageLabel = previewUrl && !previewUrl.toLowerCase().endsWith('.pdf');
+  const isImageLabel =
+    label?.has_label &&
+    (label.content_type
+      ? label.content_type.startsWith('image/')
+      : !String(label.url || '').toLowerCase().includes('.pdf'));
 
   const defaultForm = sample
     ? {

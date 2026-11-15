@@ -424,6 +424,8 @@ class PureretaHandler(SimpleHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(data)))
+        # Labels share a stable filename per filament; bust browser cache after replace.
+        self.send_header("Cache-Control", "no-store, max-age=0, must-revalidate")
         if download:
             self.send_header("Content-Disposition", f'attachment; filename="{safe_name}"')
         self.end_headers()

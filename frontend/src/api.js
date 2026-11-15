@@ -175,16 +175,24 @@ export function photoUrl(spool) {
   return `/api/photos/${filename}`;
 }
 
+function labelCacheBust(meta) {
+  if (!meta?.uploaded_at) return '';
+  return `v=${encodeURIComponent(meta.uploaded_at)}`;
+}
+
 /** Preview URL for a stored filament label (images render inline). */
 export function labelUrl(meta) {
   if (!meta?.has_label || !meta?.url) return null;
-  return meta.url;
+  const bust = labelCacheBust(meta);
+  return bust ? `${meta.url}?${bust}` : meta.url;
 }
 
 /** Force-download URL for a stored filament label. */
 export function labelDownloadUrl(meta) {
   if (!meta?.has_label || !meta?.url) return null;
-  return `${meta.url}?download=true`;
+  const bust = labelCacheBust(meta);
+  const params = ['download=true', bust].filter(Boolean).join('&');
+  return `${meta.url}?${params}`;
 }
 
 export function colorStyle(hex) {
