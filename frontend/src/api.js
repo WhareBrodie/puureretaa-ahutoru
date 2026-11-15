@@ -58,6 +58,34 @@ export const api = {
         body: JSON.stringify(body),
       });
     },
+    getLabel: (key) => {
+      const pathKey = encodeURIComponent(decodeURIComponent(key));
+      return request(`/filaments/${pathKey}/label`);
+    },
+    uploadLabel: async (key, file) => {
+      const pathKey = encodeURIComponent(decodeURIComponent(key));
+      const form = new FormData();
+      form.append('label', file);
+      const response = await fetch(`${API}/filaments/${pathKey}/label`, {
+        method: 'POST',
+        body: form,
+      });
+      if (!response.ok) {
+        let message = 'Label upload failed';
+        try {
+          const data = await response.json();
+          message = data.error || message;
+        } catch {
+          // ignore
+        }
+        throw new Error(message);
+      }
+      return response.json();
+    },
+    deleteLabel: (key) => {
+      const pathKey = encodeURIComponent(decodeURIComponent(key));
+      return request(`/filaments/${pathKey}/label`, { method: 'DELETE' });
+    },
   },
   spools: {
     list: (params = {}) => {
@@ -145,6 +173,18 @@ export function photoUrl(spool) {
   if (!spool?.photo_path) return null;
   const filename = spool.photo_path.split('/').pop();
   return `/api/photos/${filename}`;
+}
+
+/** Preview URL for a stored filament label (images render inline). */
+export function labelUrl(meta) {
+  if (!meta?.has_label || !meta?.url) return null;
+  return meta.url;
+}
+
+/** Force-download URL for a stored filament label. */
+export function labelDownloadUrl(meta) {
+  if (!meta?.has_label || !meta?.url) return null;
+  return `${meta.url}?download=true`;
 }
 
 export function colorStyle(hex) {

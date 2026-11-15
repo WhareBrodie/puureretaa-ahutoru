@@ -11,7 +11,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
 
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 
 
 def get_root() -> Path:
@@ -23,6 +23,7 @@ def get_data_dir(root: Path | None = None) -> Path:
     data_dir = root / "data"
     data_dir.mkdir(parents=True, exist_ok=True)
     (data_dir / "photos").mkdir(parents=True, exist_ok=True)
+    (data_dir / "labels").mkdir(parents=True, exist_ok=True)
     return data_dir
 
 

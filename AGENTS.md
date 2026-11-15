@@ -27,8 +27,10 @@ Filament inventory and print tracking for a Bambu Lab P1S with full AMS, inspire
 | What | Where it lives | Updated how |
 |------|----------------|-------------|
 | App (React, Python) | GitHub → Docker image | Push to `main` → GitOps redeploy |
-| SQLite DB, photos | Server volume (`/c/containers/vibes/purereta-ahutoru/data/`) | In-app CRUD + Bambu sync |
+| SQLite DB, photos, labels | Server volume (`/c/containers/vibes/purereta-ahutoru/data/`) | In-app CRUD + Bambu sync |
 | Seed empty-spool weights | Git repo (`data/seed_empty_spool_weights.json`) | Seeded once on first DB init; manage profiles in Settings → Inventory |
+
+**Filament labels:** one printable file per filament type (brand + material + colour), usually a PNG from [Bambu LabelGen](https://bambu-labelgen.socuul.dev/). Stored under `data/labels/` on the server volume; upload / download / replace / delete from the filament detail page. **Edit filament** rekeys the label row (and renames the file) with the filament group.
 
 Each spool links to an **empty spool profile** (tare weight). Weigh-in: `filament_g = scale_total_g − empty_spool_weight_g`. `last_weighed_at` is set on every scale update — use it to know when estimates were last anchored.
 
@@ -182,7 +184,9 @@ data/
   migrations/004_bambu_ignored_tasks.sql
   migrations/005_spool_weigh_profiles.sql
   migrations/006_bambu_rfid_tray_idx.sql
+  migrations/010_filament_labels.sql
   seed_empty_spool_weights.json
+  labels/                   Uploaded filament label PNGs (server volume; gitignored)
 Dockerfile                Multi-stage: npm build → Python Alpine
 docker-compose.yml        Production — Traefik labels, host volume, no ports
 docker-compose.local.yml
@@ -208,7 +212,9 @@ docker compose -f docker-compose.yml -f docker-compose.local.yml up --build
 
 - `GET /api/dashboard`, `/api/stats`, `/api/alerts`
 - `GET/POST/PUT/DELETE /api/spools`, `/api/locations`
-- `PUT /api/filaments/:key` — bulk-update brand, material, colour name, and swatch for all spools in a filament group (key = URL-encoded `brand|material|color_name`); also updates matching `bambu_filament_rfid` learns
+- `PUT /api/filaments/:key` — bulk-update brand, material, colour name, and swatch for all spools in a filament group (key = URL-encoded `brand|material|color_name`); also updates matching `bambu_filament_rfid` learns and rekeys any stored filament label
+- `GET/POST/DELETE /api/filaments/:key/label` — upload (multipart field `label`), metadata, or delete the printable label for that filament type (png/jpg/webp/pdf)
+- `GET /api/labels/:filename` — serve a stored label (`?download=true` forces attachment)
 - `GET/POST /api/prints`, `PUT /api/prints/:id`, `POST /api/prints/:id/review`, `POST /api/prints/:id/apply-deductions` — optional `project_id` on create/update
 - `GET/POST/PUT/DELETE /api/projects` — grouped prints with aggregated filament cost
 - `GET/PUT /api/ams/slots`, `GET /api/ams/live`
@@ -221,6 +227,6 @@ QR sticker sheets, Web NFC linking, Wi-Fi label PDFs, Bambu invoice PDF import �
 
 ## Git conventions
 
-- **Do not commit:** `.env`, `.env.local`, `data/purereta.db`, `data/photos/`
+- **Do not commit:** `.env`, `.env.local`, `data/purereta.db`, `data/photos/`, `data/labels/`
 - **Do commit:** app code, Dockerfile, compose files, migrations, seed JSON
 - No force-push to `main` without explicit user request

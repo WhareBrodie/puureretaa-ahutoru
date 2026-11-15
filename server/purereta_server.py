@@ -175,6 +175,15 @@ class PureretaHandler(SimpleHTTPRequestHandler):
                     self.wfile.write(data)
                     return
 
+            if len(parts) == 4 and parts[0] == "api" and parts[1] == "filaments" and parts[3] == "label":
+                self.end_json(200, filaments.get_label(parts[2]))
+                return
+
+            if len(parts) == 3 and parts[0] == "api" and parts[1] == "labels":
+                download = query.get("download", ["false"])[0].lower() in {"1", "true", "yes"}
+                self._serve_label_file(parts[2], download=download)
+                return
+
             if parts and parts[0] == "api":
                 self.send_error(404)
                 return
@@ -216,6 +225,10 @@ class PureretaHandler(SimpleHTTPRequestHandler):
 
             if len(parts) == 4 and parts[0] == "api" and parts[1] == "spools" and parts[3] == "photo":
                 self._handle_photo_upload(int(parts[2]))
+                return
+
+            if len(parts) == 4 and parts[0] == "api" and parts[1] == "filaments" and parts[3] == "label":
+                self._handle_label_upload(parts[2])
                 return
 
             if len(parts) == 4 and parts[0] == "api" and parts[1] == "spools" and parts[3] == "link-bambu-tag":
@@ -349,9 +362,15 @@ class PureretaHandler(SimpleHTTPRequestHandler):
                 restore = qs.get("restore_weight", ["true"])[0].lower() not in {"0", "false", "no"}
                 self.end_json(200, prints.delete_print(int(parts[2]), restore_weight=restore))
                 return
+            if len(parts) == 4 and parts[0] == "api" and parts[1] == "filaments" and parts[3] == "label":
+                self.end_json(200, filaments.delete_label(parts[2]))
+                return
             if parts and parts[0] == "api":
                 self.send_error(404)
                 return
+        except KeyError as exc:
+            self.end_json(404, {"error": str(exc)})
+            return
         except Exception as exc:  # noqa: BLE001
             self.end_json(400, {"error": str(exc)})
             return
@@ -374,6 +393,41 @@ class PureretaHandler(SimpleHTTPRequestHandler):
             content = self.rfile.read(length)
             filename = self.headers.get("X-Filename", "photo.jpg")
         self.end_json(200, spools.save_photo(spool_id, filename, content))
+
+    def _handle_label_upload(self, filament_key: str) -> None:
+        content_type = self.headers.get("Content-Type", "")
+        if content_type.startswith("multipart/form-data"):
+            form = cgi.FieldStorage(fp=self.rfile, headers=self.headers, environ={
+                "REQUEST_METHOD": "POST",
+                "CONTENT_TYPE": content_type,
+            })
+            if "label" not in form:
+                raise ValueError("label field required")
+            file_item = form["label"]
+            filename = getattr(file_item, "filename", "label.png") or "label.png"
+            content = file_item.file.read() if file_item.file else b""
+        else:
+            length = int(self.headers.get("Content-Length", "0"))
+            content = self.rfile.read(length)
+            filename = self.headers.get("X-Filename", "label.png")
+        self.end_json(200, filaments.save_label(filament_key, filename, content))
+
+    def _serve_label_file(self, filename: str, *, download: bool = False) -> None:
+        safe_name = Path(filename).name
+        if not safe_name or safe_name != filename or ".." in filename:
+            raise KeyError("label not found")
+        label_path = get_data_dir() / "labels" / safe_name
+        if not label_path.is_file():
+            raise KeyError("label not found")
+        data = label_path.read_bytes()
+        ctype = mimetypes.guess_type(str(label_path))[0] or "application/octet-stream"
+        self.send_response(200)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(data)))
+        if download:
+            self.send_header("Content-Disposition", f'attachment; filename="{safe_name}"')
+        self.end_headers()
+        self.wfile.write(data)
 
 
 def main() -> None:
