@@ -259,6 +259,10 @@ class PureretaHandler(SimpleHTTPRequestHandler):
                 self.end_json(200, settings.trigger_cloud_sync())
                 return
 
+            if parts == ["api", "settings", "cloud-tasks"]:
+                self.end_json(200, settings.preview_cloud_tasks())
+                return
+
             if parts == ["api", "settings", "bambu-login"]:
                 self.end_json(200, settings.bambu_login(self.read_json_body()))
                 return

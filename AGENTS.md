@@ -50,9 +50,9 @@ Cloud-first sync (recommended setup):
 2. **Cloud MQTT** (same cloud credentials + serial) — live printer/AMS state via `us.mqtt.bambulab.com` (override with `BAMBU_MQTT_BROKER` for CN accounts)
 3. **Optional local MQTT/FTPS** (`BAMBU_PRINTER_IP`, optionally `BAMBU_LAN_ACCESS_CODE`) — lower-latency live state and gcode fallback for SD/local prints; works while the printer stays cloud-connected
 
-Print completion is imported primarily by **cloud task polling** (`SYNC_CLOUD_INTERVAL_S`, default 300s). MQTT finish events can import sooner when cloud task data is already available. Cloud tasks are only imported when Bambu reports them **finished** (status 6/7, or status 2 with a real `endTime` — not while `endTime` ≈ `startTime`). **Cancelled** cloud tasks are skipped; P1-series MQTT cancels (RUNNING → IDLE) are also skipped.
+Print completion is imported primarily by **cloud task polling** (`SYNC_CLOUD_INTERVAL_S`, default 300s). MQTT finish events can import sooner when cloud task data is already available. Cloud `/my/tasks` status codes (what the API actually returns — not Studio’s internal TaskState enum): **2** = finished, **3** = aborted/failed, **4** (also 1) = still printing. Only **finished (2)** tasks are imported, and only when `endTime` is meaningfully after `startTime` (not the “still printing” placeholder where they are within ~60s). Status **3** aborted/failed jobs are skipped (Bambu leaves slice `weight` at the full estimate, so auto-deduct would be wrong). P1-series MQTT cancels (RUNNING → IDLE) are also skipped.
 
-Sync baseline lives in `cloud_sync_baseline` (timestamp). Poll fetches the **50 most recent** cloud tasks each cycle (no broken timestamp cursor).
+Sync baseline lives in `cloud_sync_baseline` (timestamp). Poll fetches the **50 most recent** cloud tasks each cycle (no broken timestamp cursor), merging the device-filtered list with account history for this printer serial — Bambu’s `deviceId` query sometimes omits jobs (e.g. a Benchy) that still carry the serial on the task payload. `GET /api/settings/cloud-tasks` shows device-filtered vs account-only for debugging.
 
 **Prints → Delete** removes a print and restores any filament that print deducted back to linked spools.
 
@@ -101,7 +101,7 @@ Bambu does **not** show this in Bambu Studio anymore. Two practical methods:
 6. In Portainer, add env var `BAMBU_CLOUD_ACCESS_TOKEN` = paste that value (no `Bearer` prefix), **or** paste the same value in **Settings → Printer → Bambu cloud access token** (stored on the server volume; no Portainer needed). The app **validates the token with Bambu before saving** and refuses dead tokens.
 7. Redeploy the stack only if you set the Portainer env var (app Settings save needs no redeploy).
 
-Token is usually valid ~90 days. Bambu’s refresh-token API is unreliable, so expiry cannot be fully automated for cookie tokens. The app mitigates this by:
+Login tokens (`expiresIn` ≈ 90 days) last longer than MakerWorld **cookie** tokens, which Bambu often revokes in days/weeks with no refresh. Prefer Method C (or B) when 2FA allows; use Method A only as a quick unblock. Saving a token (or finishing email sign-in) **immediately runs a cloud sync** so prints that finished while auth was dead are caught up without waiting for the 5-minute poll. The app mitigates cookie death by:
 
 - Showing **Cloud auth** health + days-until-expiry on **Settings → Printer**
 - Raising a **Dashboard alert** when auth fails, the token is expired, or ≤14 days remain
@@ -124,7 +124,8 @@ Set `BAMBU_CLOUD_EMAIL` and `BAMBU_CLOUD_PASSWORD` in Portainer. Works if Bambu 
 | Issue | Impact |
 |-------|--------|
 | **2FA on Bambu account** | Portainer email/password cannot auto-relogin; use Method A or in-app sign-in (Method C) |
-| **Token expiry** | ~90 days; Dashboard/Settings warn before expiry and on 401 — still needs a fresh token/sign-in when Bambu rejects it |
+| **Token expiry** | Login tokens ~90 days; MakerWorld cookie tokens often die in days/weeks with `expires_at` unknown — Dashboard warns on 401; use email sign-in when possible |
+| **Cloud status 3** | Aborted/failed cloud tasks are skipped (slice weight is not actual extruded grams) |
 | **Cloud task detail 403** | Some jobs return only total weight, not per-filament breakdown → review queue or manual assignment |
 | **SD / non-cloud-sliced prints** | Often lack cloud filament metadata; needs FTPS fallback (printer IP reachable from deploy host) or manual log |
 | **Cloud MQTT reliability** | Bambu has changed cloud MQTT auth before; reconnect loop retries every 30s |

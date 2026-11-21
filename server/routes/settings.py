@@ -115,6 +115,7 @@ def get_settings() -> dict[str, Any]:
 
 
 def update_settings(data: dict[str, Any]) -> dict[str, Any]:
+    token_saved = False
     with connect() as conn:
         if "default_low_stock_threshold_g" in data:
             set_setting(conn, "default_low_stock_threshold_g", str(data["default_low_stock_threshold_g"]))
@@ -137,6 +138,7 @@ def update_settings(data: dict[str, Any]) -> dict[str, Any]:
                     expires_at=jwt_expiry_iso(token),
                 )
                 record_cloud_auth_ok()
+                token_saved = True
             elif data.get("clear_bambu_cloud_access_token"):
                 save_cloud_access_token(None)
 
@@ -160,7 +162,13 @@ def update_settings(data: dict[str, Any]) -> dict[str, Any]:
                     printer_data.get("cloud_device_id"),
                 ),
             )
-    return get_settings()
+    settings = get_settings()
+    if token_saved:
+        # Catch up prints that finished while the previous token was dead.
+        sync = trigger_cloud_sync()
+        settings = sync.get("settings") or settings
+        return {**settings, "cloud_sync": sync.get("sync"), "cloud_sync_ok": sync.get("ok")}
+    return settings
 
 
 def bambu_login(data: dict[str, Any]) -> dict[str, Any]:
@@ -172,7 +180,13 @@ def bambu_login(data: dict[str, Any]) -> dict[str, Any]:
     client = BambuCloudClient()
     result = client.login(email, password, code=code)
     settings = get_settings()
-    return {**result, "settings": settings}
+    out: dict[str, Any] = {**result, "settings": settings}
+    if result.get("ok"):
+        sync = trigger_cloud_sync()
+        out["settings"] = sync.get("settings") or settings
+        out["cloud_sync"] = sync.get("sync")
+        out["cloud_sync_ok"] = sync.get("ok")
+    return out
 
 
 def skip_cloud_history(delete_imported: bool = False) -> dict[str, Any]:
@@ -238,4 +252,50 @@ def trigger_cloud_sync() -> dict[str, Any]:
         "error": report.get("error"),
         "sync": report,
         "settings": settings,
+    }
+
+
+def preview_cloud_tasks() -> dict[str, Any]:
+    """Diagnostics: device-filtered vs account-wide recent tasks (no import)."""
+    client = BambuCloudClient()
+    if not client.is_configured():
+        return {"ok": False, "error": "Bambu cloud is not configured"}
+    try:
+        filtered = client.fetch_tasks(limit=30)
+        account = client.fetch_tasks(limit=30, device_id=None)
+        merged = client.fetch_tasks_for_printer(limit=30)
+    except CloudAuthError as exc:
+        return {"ok": False, "error": str(exc), "auth_error": True}
+
+    def summarize(tasks: list) -> list[dict[str, Any]]:
+        out: list[dict[str, Any]] = []
+        for task in tasks:
+            out.append(
+                {
+                    "bambu_task_id": str(task.get("id") or task.get("taskId") or ""),
+                    "title": task.get("title"),
+                    "status": task.get("status"),
+                    "deviceId": task.get("deviceId") or task.get("device_id"),
+                    "startTime": task.get("startTime"),
+                    "endTime": task.get("endTime"),
+                    "weight": task.get("weight"),
+                }
+            )
+        return out
+
+    filtered_ids = {str(t.get("id") or t.get("taskId") or "") for t in filtered}
+    account_only = [
+        t
+        for t in account
+        if str(t.get("id") or t.get("taskId") or "") not in filtered_ids
+    ]
+    return {
+        "ok": True,
+        "serial": client.resolve_serial(),
+        "device_filtered_count": len(filtered),
+        "account_count": len(account),
+        "merged_count": len(merged),
+        "account_only_count": len(account_only),
+        "account_only": summarize(account_only)[:20],
+        "merged": summarize(merged)[:20],
     }

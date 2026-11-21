@@ -118,17 +118,29 @@ class SyncWorker:
             logger.info("Skipped MQTT print import for task %s", bambu_task_id or event.get("gcode_file"))
 
     def _find_matching_cloud_task(self, event: dict) -> dict | None:
-        tasks = self.cloud.fetch_tasks(limit=10)
-        filename = (event.get("gcode_file") or "").lower()
-        for task in tasks:
-            if not task_is_importable(task):
-                continue
-            title = (task.get("title") or "").lower()
+        """Match MQTT finish to a cloud task even if Bambu hasn't flipped status to 2 yet."""
+        tasks = self.cloud.fetch_tasks_for_printer(limit=20)
+        event_task_id = str(event.get("task_id") or "").strip()
+        filename = (event.get("gcode_file") or event.get("subtask_name") or "").lower()
+        candidates: list[dict] = []
+        if event_task_id:
+            for task in tasks:
+                task_id = str(task.get("id") or task.get("taskId") or "")
+                if task_id == event_task_id:
+                    candidates.append(task)
+                    break
+        if not candidates and filename:
+            for task in tasks:
+                title = (task.get("title") or "").lower()
+                if filename in title or title in filename:
+                    candidates.append(task)
+        if not candidates and tasks:
+            # Newest cloud task for this printer — MQTT finish usually lines up with it.
+            candidates.append(tasks[0])
+        for task in candidates:
             task_id = str(task.get("id") or task.get("taskId") or "")
-            if filename and filename in title:
-                detail = self.cloud.fetch_task_detail(task_id) or task
-                if task_is_importable(detail):
-                    return detail
+            detail = self.cloud.fetch_task_detail(task_id) or task
+            return detail
         return None
 
     def poll_cloud_tasks(self) -> dict[str, Any]:
@@ -138,8 +150,9 @@ class SyncWorker:
             ensure_cloud_sync_baseline(conn)
         # Fetch recent tasks without the `after` cursor — Bambu expects a task id there,
         # and we previously stored ISO timestamps which skipped finished jobs.
+        # Merge device-filtered + account history so a Benchy omitted by deviceId= still imports.
         try:
-            tasks = self.cloud.fetch_tasks(limit=50)
+            tasks = self.cloud.fetch_tasks_for_printer(limit=50)
         except CloudAuthError as exc:
             logger.error("Cloud poll blocked by auth failure: %s", exc)
             return {"ok": False, "error": str(exc), "auth_error": True, "examined": [], "imported": []}
@@ -174,8 +187,10 @@ class SyncWorker:
                 entry["skip"] = "unknown_status"
                 examined.append(entry)
                 continue
-            if normalized_status == "cancelled":
-                entry["skip"] = "cancelled"
+            if normalized_status in {"cancelled", "failed"}:
+                # Cloud status 3 = aborted or failed; weight/length stay at the full slice
+                # estimate, so we do not auto-deduct. Record the skip reason for diagnostics.
+                entry["skip"] = normalized_status
                 examined.append(entry)
                 continue
             with connect() as conn:
@@ -261,7 +276,7 @@ class SyncWorker:
             "newest_task_id": task_id or None,
             "imported_count": len(imported),
             "imported": imported,
-            "examined": examined_newest_first[:15],
+            "examined": examined_newest_first[:40],
         }
 
     def run(self) -> None:

@@ -25,13 +25,12 @@ logger = logging.getLogger("bambu.cloud")
 class CloudAuthError(RuntimeError):
     """Bambu rejected cloud credentials (expired/revoked token or failed login)."""
 
-# Bambu Studio TaskState enum (numeric status on /my/tasks hits).
-TASK_STATUS_PRINT_SUCCESS = 6
-TASK_STATUS_PRINT_FAILED = 7
-TASK_STATUS_SEND_CANCELED = 3
-TASK_STATUS_SEND_FAILED = 4
-TASK_STATUS_SEND_COMPLETED = 2
-TASK_STATUS_PRINTING = 5
+# Cloud GET /v1/user-service/my/tasks hit `status` values (Bambu Studio parse_task_status
+# + OpenBambuAPI field notes). These are NOT the Studio TaskState send/print stage enums
+# (those use 3=send_canceled, 4=send_failed, 5=printing, 6=print_success, 7=print_failed).
+CLOUD_TASK_PRINTING = {1, 4, 5}
+CLOUD_TASK_FINISHED = {2, 6}  # 2 is what /my/tasks returns; 6 kept as legacy alias
+CLOUD_TASK_FAILED = {3, 7}  # 3 = aborted or failed on /my/tasks; 7 = legacy print_failed
 
 
 def _parse_iso8601(value: str | None) -> datetime | None:
@@ -43,13 +42,20 @@ def _parse_iso8601(value: str | None) -> datetime | None:
         return None
 
 
-def task_is_still_printing(task: dict[str, Any]) -> bool:
-    """OpenBambuAPI: endTime within ~1 minute of startTime means actively printing."""
+def task_duration_seconds(task: dict[str, Any]) -> float | None:
     start = _parse_iso8601(task.get("startTime") or task.get("start_time"))
     end = _parse_iso8601(task.get("endTime") or task.get("end_time"))
     if not start or not end:
+        return None
+    return max(0.0, (end - start).total_seconds())
+
+
+def task_is_still_printing(task: dict[str, Any]) -> bool:
+    """OpenBambuAPI: endTime within ~1 minute of startTime means actively printing."""
+    duration = task_duration_seconds(task)
+    if duration is None:
         return False
-    return (end - start).total_seconds() < 90
+    return duration < 60
 
 
 def normalize_cloud_task_status(task: dict[str, Any]) -> str | None:
@@ -58,28 +64,23 @@ def normalize_cloud_task_status(task: dict[str, Any]) -> str | None:
     if raw is None:
         return None
     if isinstance(raw, int):
-        if raw in (TASK_STATUS_PRINTING,):
+        if raw in CLOUD_TASK_PRINTING:
             return None
-        if raw == TASK_STATUS_PRINT_SUCCESS:
-            return "completed"
-        if raw == TASK_STATUS_PRINT_FAILED:
-            return "failed"
-        if raw in (TASK_STATUS_SEND_CANCELED, TASK_STATUS_SEND_FAILED):
-            return "cancelled"
-        if raw == TASK_STATUS_SEND_COMPLETED:
+        if raw in CLOUD_TASK_FINISHED:
             return None if task_is_still_printing(task) else "completed"
+        if raw in CLOUD_TASK_FAILED:
+            # Early abort (end≈start) is treated as still-open / ignore via importable().
+            return None if task_is_still_printing(task) else "failed"
         return None
     token = str(raw).strip().lower()
-    if token in {"5", "printing"}:
+    if token in {"1", "4", "5", "printing"}:
         return None
-    if token in {"6", "completed", "success", "print_success"}:
-        return "completed"
-    if token in {"7", "failed", "print_failed"}:
-        return "failed"
-    if token in {"3", "4", "cancelled", "canceled", "send_canceled", "send_failed"}:
-        return "cancelled"
-    if token in {"2", "send_completed"}:
+    if token in {"2", "6", "completed", "success", "print_success", "send_completed"}:
         return None if task_is_still_printing(task) else "completed"
+    if token in {"3", "7", "failed", "print_failed", "aborted"}:
+        return None if task_is_still_printing(task) else "failed"
+    if token in {"cancelled", "canceled", "send_canceled", "send_failed"}:
+        return "cancelled"
     return None
 
 
@@ -104,6 +105,17 @@ def task_completion_percent(task: dict[str, Any], normalized_status: str) -> flo
                 return max(0.0, min(float(value), 100.0))
             except (TypeError, ValueError):
                 continue
+    # Cloud aborted/failed tasks often omit progress; weight/length stay at the full
+    # slice estimate. Scale by elapsed/costTime so we don't deduct a full spool for a
+    # mid-print cancel.
+    if normalized_status == "failed":
+        duration = task_duration_seconds(task)
+        try:
+            cost = float(task.get("costTime") or 0)
+        except (TypeError, ValueError):
+            cost = 0.0
+        if duration and cost > 0:
+            return max(0.0, min((duration / cost) * 100.0, 100.0))
     return 0.0
 
 API_BASE = "https://api.bambulab.com"
@@ -400,13 +412,29 @@ class BambuCloudClient:
             return ""
         return str(device.get("dev_access_code") or "").strip()
 
-    def fetch_tasks(self, after: str | None = None, limit: int = 20) -> list[dict[str, Any]]:
+    def fetch_tasks(
+        self,
+        after: str | None = None,
+        limit: int = 20,
+        *,
+        device_id: str | None | object = ...,
+    ) -> list[dict[str, Any]]:
+        """Fetch recent cloud tasks.
+
+        device_id:
+          - Ellipsis (default): use BAMBU_CLOUD_DEVICE_ID / BAMBU_SERIAL when set
+          - None: do not send deviceId (full account history)
+          - str: filter to that device
+        """
         if not self.is_configured():
             return []
         params: dict[str, Any] = {"limit": limit}
-        device_id = os.environ.get("BAMBU_CLOUD_DEVICE_ID") or os.environ.get("BAMBU_SERIAL")
-        if device_id:
-            params["deviceId"] = device_id
+        if device_id is ...:
+            resolved = os.environ.get("BAMBU_CLOUD_DEVICE_ID") or os.environ.get("BAMBU_SERIAL")
+            if resolved:
+                params["deviceId"] = resolved.strip()
+        elif device_id:
+            params["deviceId"] = str(device_id).strip()
         if after:
             params["after"] = after
         try:
@@ -428,6 +456,45 @@ class BambuCloudClient:
         except Exception:
             logger.exception("Failed to fetch Bambu cloud tasks")
             return []
+
+    def fetch_tasks_for_printer(self, limit: int = 50) -> list[dict[str, Any]]:
+        """Device-filtered tasks, merged with account history for this printer serial.
+
+        Bambu's deviceId query param sometimes omits jobs that still carry our
+        serial on the task payload (seen when looking for a missing Benchy).
+        """
+        serial = (
+            os.environ.get("BAMBU_CLOUD_DEVICE_ID")
+            or os.environ.get("BAMBU_SERIAL")
+            or self.resolve_serial()
+            or ""
+        ).strip()
+        by_id: dict[str, dict[str, Any]] = {}
+        for task in self.fetch_tasks(limit=limit):
+            task_id = str(task.get("id") or task.get("taskId") or "")
+            if task_id:
+                by_id[task_id] = task
+        try:
+            account_tasks = self.fetch_tasks(limit=limit, device_id=None)
+        except CloudAuthError:
+            raise
+        except Exception:
+            account_tasks = []
+        for task in account_tasks:
+            task_id = str(task.get("id") or task.get("taskId") or "")
+            if not task_id:
+                continue
+            task_device = str(task.get("deviceId") or task.get("device_id") or "").strip()
+            if serial and task_device and task_device != serial:
+                continue
+            # Prefer the device-filtered hit when both exist; otherwise add.
+            by_id.setdefault(task_id, task)
+        # Newest-first like the cloud API (higher/more recent ids tend to come first).
+        return sorted(
+            by_id.values(),
+            key=lambda t: str(t.get("id") or t.get("taskId") or ""),
+            reverse=True,
+        )
 
     def fetch_task_detail(self, task_id: str) -> dict[str, Any] | None:
         if not self.is_configured() or not task_id:

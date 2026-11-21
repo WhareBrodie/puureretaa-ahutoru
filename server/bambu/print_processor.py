@@ -18,7 +18,7 @@ from bambu.task_guard import (
     is_bambu_task_ignored,
     should_deduct_auto_import,
 )
-from db import connect, ceil_usage_g, deduct_spool_weight, scaled_deduction_g, set_sync_state
+from db import connect, ceil_usage_g, deduct_spool_weight, get_sync_state, scaled_deduction_g, set_sync_state
 
 logger = logging.getLogger("bambu.processor")
 
@@ -627,7 +627,20 @@ def store_live_state(printer_state: dict[str, Any], trays: dict[str, Any]) -> No
 
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     with connect() as conn:
-        set_sync_state(conn, "live_printer_state", json.dumps(printer_state))
+        # MQTT deltas often omit fields — merge onto the last snapshot so we don't
+        # wipe gcode_file / progress with nulls between pushall refreshes.
+        merged = dict(printer_state or {})
+        prev_raw = get_sync_state(conn, "live_printer_state")
+        if prev_raw:
+            try:
+                prev = json.loads(prev_raw)
+            except json.JSONDecodeError:
+                prev = {}
+            if isinstance(prev, dict):
+                for key, value in prev.items():
+                    if merged.get(key) is None and value is not None:
+                        merged[key] = value
+        set_sync_state(conn, "live_printer_state", json.dumps(merged))
         set_sync_state(conn, "mqtt_last_print_at", now)
         # P1/P1S only includes AMS tray arrays in full pushall snapshots, not deltas.
         if trays:

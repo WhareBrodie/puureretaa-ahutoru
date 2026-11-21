@@ -58,11 +58,18 @@ export default function SettingsPage() {
       const updated = await api.settings.update(body);
       setSettings(updated);
       setCloudTokenInput('');
-      setMessage(
-        tokenToSave
-          ? 'Printer settings saved — token validated with Bambu'
-          : 'Printer settings saved',
-      );
+      if (tokenToSave) {
+        const imported = updated.cloud_sync?.imported_count || 0;
+        setMessage(
+          updated.cloud_sync_ok === false
+            ? 'Token saved, but cloud sync failed — use Sync cloud now'
+            : imported
+              ? `Token saved — imported ${imported} missed print(s)`
+              : 'Token saved and cloud synced — no new finished prints yet',
+        );
+      } else {
+        setMessage('Printer settings saved');
+      }
     } catch (err) {
       setError(err.message);
     }
@@ -112,7 +119,12 @@ export default function SettingsPage() {
       setNeedsLoginCode(false);
       setLoginPassword('');
       setLoginCode('');
-      setMessage('Signed in to Bambu cloud — token saved');
+      const imported = result.cloud_sync?.imported_count || 0;
+      setMessage(
+        imported
+          ? `Signed in — imported ${imported} missed print(s)`
+          : 'Signed in to Bambu cloud — token saved and cloud synced',
+      );
     } catch (err) {
       setError(err.message);
     }
@@ -408,10 +420,12 @@ export default function SettingsPage() {
           </label>
           <p className="muted">
             From MakerWorld (Chrome DevTools → Application → Cookies → <code>token</code>).
-            Saved tokens are validated with Bambu before storage. Tokens last ~90 days; the dashboard warns before expiry.
+            Cookie tokens are validated on save, then cloud history is synced immediately — but Bambu can revoke
+            them in days/weeks with no usable refresh. Prefer <strong>Sign in with Bambu email</strong> below for a
+            ~90-day token (with refresh when Bambu returns one).
           </p>
-          <details className="settings-details">
-            <summary>Sign in with Bambu email (preferred when 2FA allows)</summary>
+          <details className="settings-details" open>
+            <summary>Sign in with Bambu email (preferred)</summary>
             <div className="form-grid two" style={{ marginTop: '0.75rem' }}>
               <label>
                 Email
