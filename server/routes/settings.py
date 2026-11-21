@@ -261,9 +261,11 @@ def preview_cloud_tasks() -> dict[str, Any]:
     if not client.is_configured():
         return {"ok": False, "error": "Bambu cloud is not configured"}
     try:
-        filtered = client.fetch_tasks(limit=30)
-        account = client.fetch_tasks(limit=30, device_id=None)
-        merged = client.fetch_tasks_for_printer(limit=30)
+        filtered = client.fetch_tasks(limit=50)
+        account = client.fetch_tasks(limit=50, device_id=None)
+        merged = client.fetch_tasks_for_printer(limit=50)
+        plates = client.fetch_printed_plates(limit=50)
+        iot_jobs = client.fetch_iot_print_jobs(limit=50)
     except CloudAuthError as exc:
         return {"ok": False, "error": str(exc), "auth_error": True}
 
@@ -272,12 +274,25 @@ def preview_cloud_tasks() -> dict[str, Any]:
         for task in tasks:
             out.append(
                 {
-                    "bambu_task_id": str(task.get("id") or task.get("taskId") or ""),
-                    "title": task.get("title"),
+                    "bambu_task_id": str(
+                        task.get("id")
+                        or task.get("taskId")
+                        or task.get("job_id")
+                        or task.get("task_id")
+                        or ""
+                    ),
+                    "title": task.get("title")
+                    or task.get("file_name")
+                    or task.get("fileName")
+                    or task.get("name"),
                     "status": task.get("status"),
                     "deviceId": task.get("deviceId") or task.get("device_id"),
-                    "startTime": task.get("startTime"),
-                    "endTime": task.get("endTime"),
+                    "startTime": task.get("startTime")
+                    or task.get("started_at")
+                    or task.get("start_time"),
+                    "endTime": task.get("endTime")
+                    or task.get("completed_at")
+                    or task.get("end_time"),
                     "weight": task.get("weight"),
                 }
             )
@@ -298,4 +313,8 @@ def preview_cloud_tasks() -> dict[str, Any]:
         "account_only_count": len(account_only),
         "account_only": summarize(account_only)[:20],
         "merged": summarize(merged)[:20],
+        "printed_plates_count": len(plates),
+        "printed_plates": summarize(plates)[:20],
+        "iot_print_jobs_count": len(iot_jobs),
+        "iot_print_jobs": summarize(iot_jobs)[:20],
     }

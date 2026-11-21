@@ -100,6 +100,10 @@ class PureretaHandler(SimpleHTTPRequestHandler):
                 self.end_json(200, settings.get_settings())
                 return
 
+            if parts == ["api", "settings", "cloud-tasks"]:
+                self.end_json(200, settings.preview_cloud_tasks())
+                return
+
             if parts == ["api", "locations"]:
                 self.end_json(200, {"locations": locations.list_locations()})
                 return

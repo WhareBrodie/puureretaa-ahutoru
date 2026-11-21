@@ -496,6 +496,73 @@ class BambuCloudClient:
             reverse=True,
         )
 
+    def _get_json(self, path: str, *, params: dict[str, Any] | None = None) -> Any:
+        resp = self._request_with_auth("GET", f"{API_BASE}{path}", params=params)
+        if resp.status_code in {403, 404}:
+            return None
+        resp.raise_for_status()
+        return resp.json() if resp.content else None
+
+    def fetch_printed_plates(self, limit: int = 50) -> list[dict[str, Any]]:
+        """Alternate history endpoint Handy may use; shape varies."""
+        try:
+            data = self._get_json(
+                "/v1/user-service/my/task/printedplates",
+                params={"limit": limit},
+            )
+        except CloudAuthError:
+            raise
+        except Exception:
+            logger.exception("Failed to fetch printed plates")
+            return []
+        if data is None:
+            return []
+        if isinstance(data, list):
+            return data
+        if isinstance(data, dict):
+            for key in ("hits", "plates", "data", "list", "tasks"):
+                raw = data.get(key)
+                if isinstance(raw, list):
+                    return raw
+                if isinstance(raw, dict) and isinstance(raw.get("hits"), list):
+                    return raw["hits"]
+        return []
+
+    def fetch_iot_print_jobs(self, limit: int = 50) -> list[dict[str, Any]]:
+        """GET /v1/iot-service/api/user/print — another print-history surface."""
+        serial = (
+            os.environ.get("BAMBU_CLOUD_DEVICE_ID")
+            or os.environ.get("BAMBU_SERIAL")
+            or self.resolve_serial()
+            or ""
+        ).strip()
+        params: dict[str, Any] = {"limit": limit}
+        if serial:
+            params["device_id"] = serial
+        try:
+            data = self._get_json("/v1/iot-service/api/user/print", params=params)
+        except CloudAuthError:
+            raise
+        except Exception:
+            logger.exception("Failed to fetch iot print jobs")
+            return []
+        if data is None:
+            return []
+        if isinstance(data, list):
+            return data
+        if isinstance(data, dict):
+            inner = data.get("data") if isinstance(data.get("data"), dict) else data
+            if isinstance(inner, dict):
+                for key in ("jobs", "prints", "list", "hits"):
+                    raw = inner.get(key)
+                    if isinstance(raw, list):
+                        return raw
+            for key in ("jobs", "prints", "list", "hits", "data"):
+                raw = data.get(key)
+                if isinstance(raw, list):
+                    return raw
+        return []
+
     def fetch_task_detail(self, task_id: str) -> dict[str, Any] | None:
         if not self.is_configured() or not task_id:
             return None
