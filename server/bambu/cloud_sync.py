@@ -32,6 +32,57 @@ CLOUD_TASK_PRINTING = {1, 4, 5}
 CLOUD_TASK_FINISHED = {2, 6}  # 2 is what /my/tasks returns; 6 kept as legacy alias
 CLOUD_TASK_FAILED = {3, 7}  # 3 = aborted or failed on /my/tasks; 7 = legacy print_failed
 
+# MQTT finish events often omit subtask_name/gcode_file; never keep these as the print title.
+PLACEHOLDER_TITLES = {"", "untitled", "cloud print", "manual print"}
+
+
+def _clean_title(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    if text.lower() in PLACEHOLDER_TITLES:
+        return None
+    # Strip common file suffixes from gcode/3mf names.
+    for suffix in (".gcode", ".3mf", ".gcode.3mf"):
+        if text.lower().endswith(suffix):
+            text = text[: -len(suffix)]
+            break
+    text = text.strip()
+    return text or None
+
+
+def cloud_task_title(*sources: dict[str, Any] | None, fallback: str | None = None) -> str:
+    """Best available human title from cloud task list/detail and MQTT fields."""
+    keys = (
+        "title",
+        "designTitle",
+        "designTitleTranslated",
+        "design_title",
+        "plateName",
+        "plate_name",
+        "subtask_name",
+        "gcode_file",
+        "file_name",
+        "fileName",
+        "name",
+    )
+    for source in sources:
+        if not isinstance(source, dict):
+            continue
+        for key in keys:
+            cleaned = _clean_title(source.get(key))
+            if cleaned:
+                return cleaned
+    cleaned_fallback = _clean_title(fallback)
+    return cleaned_fallback or "Cloud print"
+
+
+def is_placeholder_title(value: Any) -> bool:
+    text = str(value or "").strip().lower()
+    return text in PLACEHOLDER_TITLES
+
 
 def _parse_iso8601(value: str | None) -> datetime | None:
     if not value:

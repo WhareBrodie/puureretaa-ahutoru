@@ -17,6 +17,8 @@ if str(SERVER_DIR) not in sys.path:
 from bambu.cloud_sync import (
     BambuCloudClient,
     CloudAuthError,
+    cloud_task_title,
+    is_placeholder_title,
     normalize_cloud_task_status,
     task_completion_percent,
     task_is_importable,
@@ -54,6 +56,7 @@ class SyncWorker:
 
         usages: list[dict] = []
         source = "mqtt"
+        task: dict | None = None
         try:
             task = self._find_matching_cloud_task(event)
         except CloudAuthError as exc:
@@ -102,8 +105,13 @@ class SyncWorker:
         if event_status == "failed":
             completion = float(event.get("completion_percent") or 0)
 
+        title = cloud_task_title(
+            task if isinstance(task, dict) else None,
+            event,
+            fallback=event.get("subtask_name") or event.get("gcode_file"),
+        )
         result = process_print_job(
-            title=event.get("subtask_name") or event.get("gcode_file"),
+            title=title,
             started_at=None,
             ended_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             duration_s=None,
@@ -168,7 +176,7 @@ class SyncWorker:
             if not task_id:
                 continue
             detail = self.cloud.fetch_task_detail(task_id) or task
-            title = detail.get("title") or task.get("title") or ""
+            title = cloud_task_title(detail, task)
             entry: dict[str, Any] = {
                 "bambu_task_id": task_id,
                 "title": title,
@@ -199,11 +207,19 @@ class SyncWorker:
                     examined.append(entry)
                     continue
                 existing = conn.execute(
-                    "SELECT id FROM print_jobs WHERE bambu_task_id = ?", (task_id,)
+                    "SELECT id, title FROM print_jobs WHERE bambu_task_id = ?", (task_id,)
                 ).fetchone()
             if existing:
                 entry["skip"] = "already_imported"
                 entry["print_id"] = existing["id"]
+                # MQTT often imported first with a null/Untitled name — repair from cloud.
+                if title and is_placeholder_title(existing["title"]):
+                    with connect() as conn:
+                        conn.execute(
+                            "UPDATE print_jobs SET title = ? WHERE id = ?",
+                            (title, existing["id"]),
+                        )
+                    entry["title_repaired"] = title
                 examined.append(entry)
                 continue
             ended_at = task_timestamp(detail) or task_timestamp(task)
@@ -235,15 +251,21 @@ class SyncWorker:
                 examined.append(entry)
                 continue
             completion = task_completion_percent(detail, normalized_status)
+            gcode_file = (
+                detail.get("gcode_file")
+                or task.get("gcode_file")
+                or detail.get("title")
+                or task.get("title")
+            )
             result = process_print_job(
-                title=detail.get("title") or "Cloud print",
+                title=title,
                 started_at=detail.get("startTime"),
                 ended_at=detail.get("endTime"),
                 duration_s=detail.get("costTime"),
                 status=normalized_status,
                 source="cloud",
                 bambu_task_id=task_id,
-                gcode_file=None,
+                gcode_file=str(gcode_file) if gcode_file else None,
                 completion_percent=completion,
                 usages=usages,
             )
