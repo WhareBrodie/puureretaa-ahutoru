@@ -126,7 +126,8 @@ def resolve_spool_for_slot(
 
 
 def _normalize_material(value: str | None) -> str:
-    return (value or "").upper().replace("_", "-").strip()
+    token = (value or "").upper().replace("_", "-").strip()
+    return "-".join(part for part in token.split() if part)
 
 
 def _is_support_material(value: str | None) -> bool:
@@ -143,6 +144,11 @@ def _is_support_material(value: str | None) -> bool:
     } or token.startswith("SUPPORT")
 
 
+def _is_pla_family(value: str | None) -> bool:
+    token = _normalize_material(value)
+    return token.startswith("PLA") and not _is_support_material(token)
+
+
 def _materials_compatible(usage_material: str | None, spool_material: str | None) -> bool:
     usage = _normalize_material(usage_material)
     spool = _normalize_material(spool_material)
@@ -151,6 +157,9 @@ def _materials_compatible(usage_material: str | None, spool_material: str | None
     if usage == spool:
         return True
     if _is_support_material(usage) and _is_support_material(spool):
+        return True
+    # Bidirectional PLA family (PLA ↔ PLA-MATTE / PLA-SILK) for AMS slot matching.
+    if _is_pla_family(usage) and _is_pla_family(spool):
         return True
     if usage == "PLA" and spool.startswith("PLA") and not _is_support_material(spool):
         return True

@@ -1,6 +1,22 @@
 import { useMemo, useState } from 'react';
 import { api } from '../api';
-import { compareSpoolsForSelect, formatSpoolSelectLabel, formatUsageG } from '../utils/filaments';
+import {
+  compareSpoolsForSelect,
+  formatSpoolSelectLabel,
+  formatUsageG,
+  materialsCompatible,
+} from '../utils/filaments';
+
+function spoolsForUsage(spools, usageMaterial, selectedSpoolId) {
+  const matched = spools.filter(
+    (spool) =>
+      String(spool.id) === String(selectedSpoolId || '')
+      || materialsCompatible(usageMaterial, spool.material),
+  );
+  // Never leave the dropdown empty — naming mismatches should still allow manual pick.
+  const list = matched.length > 0 ? matched : spools;
+  return list.slice().sort(compareSpoolsForSelect);
+}
 
 function buildInitialAssignments(usages) {
   return usages.map((usage) => ({
@@ -146,14 +162,11 @@ export default function ReviewPrintModal({ printJob, spools, onClose, onSaved })
                           required={Number(item.used_g) > 0}
                         >
                           <option value="">Choose spool</option>
-                          {spools
-                            .filter((spool) => !item.material || spool.material === item.material)
-                            .sort(compareSpoolsForSelect)
-                            .map((spool) => (
-                              <option key={spool.id} value={spool.id}>
-                                {formatSpoolSelectLabel(spool)}
-                              </option>
-                            ))}
+                          {spoolsForUsage(spools, item.material, item.spool_id).map((spool) => (
+                            <option key={spool.id} value={spool.id}>
+                              {formatSpoolSelectLabel(spool)}
+                            </option>
+                          ))}
                         </select>
                       </label>
                     </div>
@@ -177,14 +190,11 @@ export default function ReviewPrintModal({ printJob, spools, onClose, onSaved })
                   onChange={(e) => updateAssignment(item.usage_id, { spool_id: e.target.value })}
                 >
                   <option value="">Choose spool</option>
-                  {spools
-                    .filter((spool) => !usage.material || spool.material === usage.material)
-                    .sort(compareSpoolsForSelect)
-                    .map((spool) => (
-                      <option key={spool.id} value={spool.id}>
-                        {formatSpoolSelectLabel(spool)}
-                      </option>
-                    ))}
+                  {spoolsForUsage(spools, usage.material, item.spool_id).map((spool) => (
+                    <option key={spool.id} value={spool.id}>
+                      {formatSpoolSelectLabel(spool)}
+                    </option>
+                  ))}
                 </select>
               </label>
             </div>

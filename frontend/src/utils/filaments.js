@@ -13,6 +13,54 @@ export function isDepleted(spool) {
   return (spool.remaining_g ?? 0) <= 0;
 }
 
+/** Normalize Bambu / inventory material tokens for comparison. */
+export function normalizeMaterial(value) {
+  return String(value || '')
+    .toUpperCase()
+    .replace(/_/g, '-')
+    .replace(/\s+/g, '-')
+    .trim();
+}
+
+export function isSupportMaterial(value) {
+  const token = normalizeMaterial(value);
+  if (!token) return false;
+  return (
+    token === 'PLA-S'
+    || token === 'PETG-S'
+    || token === 'SUPPORT'
+    || token === 'SUPPORT-FOR-PLA'
+    || token === 'SUPPORT-FOR-PA'
+    || token === 'SUPPORT-FOR-PETG'
+    || token === 'SUPPORT-PA'
+    || token === 'SUPPORT-PETG'
+    || token.startsWith('SUPPORT')
+  );
+}
+
+function isPlaFamily(value) {
+  const token = normalizeMaterial(value);
+  return token.startsWith('PLA') && !isSupportMaterial(token);
+}
+
+/**
+ * Match print-usage materials to inventory spools for review dropdowns.
+ * Mirrors server/bambu/print_processor._materials_compatible, plus bidirectional
+ * PLA family matching so PLA Matte / PLA Basic both appear when Bambu reports "PLA".
+ */
+export function materialsCompatible(usageMaterial, spoolMaterial) {
+  const usage = normalizeMaterial(usageMaterial);
+  const spool = normalizeMaterial(spoolMaterial);
+  if (!usage || usage === 'UNKNOWN') return true;
+  if (usage === spool) return true;
+  if (isSupportMaterial(usage) && isSupportMaterial(spool)) return true;
+  if (isPlaFamily(usage) && isPlaFamily(spool)) return true;
+  // Generic "PLA" from cloud also covers PLA-MATTE / PLA-SILK etc. (already covered
+  // by isPlaFamily, but keep PETG/ABS-style prefix expansion for non-PLA later).
+  if (usage === 'PLA' && spool.startsWith('PLA') && !isSupportMaterial(spool)) return true;
+  return false;
+}
+
 /** Alphabetical by brand → material → colour; heavier spools first within the same filament. */
 export function compareSpoolsForSelect(a, b) {
   for (const field of ['brand', 'material', 'color_name']) {

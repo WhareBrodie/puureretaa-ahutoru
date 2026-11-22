@@ -143,6 +143,7 @@ Bambu RFID identifies **filament product** by **`tray_info_idx`** (colour/SKU). 
 
 - Non-RFID loads still need manual slot mapping when swapped
 - Ambiguous prints land in **Review queue** (`/prints?review=1`) for manual spool assignment
+- Review dropdowns match materials with the same rules as sync (PLA family ↔ PLA-MATTE / PLA-SILK; support types like `PLA-S` ↔ `SUPPORT` / `SUPPORT-FOR-PLA`), not exact string equality — so Matte/Basic and support spools stay selectable when cloud reports a generic type
 
 ## Environment variables
 
