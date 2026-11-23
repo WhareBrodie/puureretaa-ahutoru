@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api, colorStyle, daysSince, formatDate, photoUrl } from '../api';
 import SpoolFormModal from '../components/SpoolFormModal';
-import { formatMoney, formatUsageG, usageCost } from '../utils/filaments';
+import { formatMoney, formatUsageG, isArchived, usageCost } from '../utils/filaments';
 
 export default function SpoolDetailPage() {
   const { id } = useParams();
@@ -11,6 +11,7 @@ export default function SpoolDetailPage() {
   const [scaleWeight, setScaleWeight] = useState('');
   const [dryingNotes, setDryingNotes] = useState('');
   const [showEdit, setShowEdit] = useState(false);
+  const [archiveBusy, setArchiveBusy] = useState(false);
   const [error, setError] = useState('');
 
   const load = () => {
@@ -55,7 +56,30 @@ export default function SpoolDetailPage() {
     }
   };
 
-  if (error) return <div className="card danger">{error}</div>;
+  const handleArchiveToggle = async () => {
+    if (!spool) return;
+    const nextArchived = !isArchived(spool);
+    if (
+      nextArchived
+      && !window.confirm(
+        'Archive this spool? It will be hidden from AMS mapping, review, and print dropdowns until restored.',
+      )
+    ) {
+      return;
+    }
+    setArchiveBusy(true);
+    setError('');
+    try {
+      await api.spools.update(id, { archived: nextArchived });
+      load();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setArchiveBusy(false);
+    }
+  };
+
+  if (error && !spool) return <div className="card danger">{error}</div>;
   if (!spool) return <div className="card muted">Loading spool…</div>;
 
   const photo = photoUrl(spool);
@@ -78,10 +102,25 @@ export default function SpoolDetailPage() {
         <div>
           <Link to="/filaments" className="muted back-link">← Back to filaments</Link>
           <h1>{spool.color_name || `${spool.brand} ${spool.material}`}</h1>
-          <p>{spool.brand} · {spool.material} · {Math.round(spool.remaining_g || 0)}g remaining</p>
+          <p>
+            {spool.brand} · {spool.material} · {Math.round(spool.remaining_g || 0)}g remaining
+            {isArchived(spool) ? ' · Archived' : ''}
+          </p>
         </div>
-        <button onClick={() => setShowEdit(true)}>Edit spool</button>
+        <div className="page-header-actions">
+          <button
+            type="button"
+            className="secondary"
+            disabled={archiveBusy}
+            onClick={handleArchiveToggle}
+          >
+            {isArchived(spool) ? 'Restore spool' : 'Archive spool'}
+          </button>
+          <button type="button" onClick={() => setShowEdit(true)}>Edit spool</button>
+        </div>
       </div>
+
+      {error && <div className="card danger">{error}</div>}
 
       <div className="grid grid-2">
         <div className="card">

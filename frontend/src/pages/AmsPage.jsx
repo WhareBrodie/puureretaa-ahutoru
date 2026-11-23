@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { api, colorStyle, formatDate } from '../api';
-import { compareSpoolsForSelect, formatSpoolSelectLabel } from '../utils/filaments';
+import { compareSpoolsForSelect, formatSpoolSelectLabel, spoolsForSelect } from '../utils/filaments';
 
 function mqttColor(hex) {
   if (!hex) return null;
@@ -84,10 +84,10 @@ export default function AmsPage() {
 
   const slots = live?.slots || [];
   const mqtt = live?.ams || {};
-  const sortedSpools = useMemo(
-    () => [...spools].sort(compareSpoolsForSelect),
-    [spools],
-  );
+  const sortedSpoolsForSlot = (slot) =>
+    spoolsForSelect(spools, slot.spool_id || slot.mapped_spool_id)
+      .slice()
+      .sort(compareSpoolsForSelect);
 
   return (
     <>
@@ -155,7 +155,7 @@ export default function AmsPage() {
                   onChange={(e) => updateSlot(slot.slot, e.target.value)}
                 >
                   <option value="">Unassigned</option>
-                  {sortedSpools.map((spool) => (
+                  {sortedSpoolsForSlot(slot).map((spool) => (
                     <option key={spool.id} value={spool.id}>
                       {formatSpoolSelectLabel(spool)}
                     </option>

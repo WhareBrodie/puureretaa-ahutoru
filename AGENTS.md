@@ -34,6 +34,8 @@ Filament inventory and print tracking for a Bambu Lab P1S with full AMS, inspire
 
 Each spool links to an **empty spool profile** (tare weight). Weigh-in: `filament_g = scale_total_g − empty_spool_weight_g`. `last_weighed_at` is set on every scale update — use it to know when estimates were last anchored.
 
+**Archive spool:** from the spool detail page (**Archive spool** / **Restore**). Manual only — reaching 0g never auto-archives (in case weigh/sync estimates are off). Archived spools are hidden from AMS mapping, review, and manual-print dropdowns, and from Filaments / Inventory / filament detail lists unless **Show archived** is on. Archiving clears any AMS slot mapped to that spool. SpoolStock CSV `depleted=true` imports as `archived=1`.
+
 `color_hex` accepts a plain hex (`#RRGGBB`) or JSON for multi-colour: `{"mode":"rainbow"}`, or `{"mode":"multi","colors":["#A","#B",...]}` (2–9 colours; dual = 2).
 
 Deploy host admin creates `/c/containers/vibes/purereta-ahutoru/data` once before first deploy.
@@ -195,6 +197,7 @@ data/
   migrations/006_bambu_rfid_tray_idx.sql
   migrations/010_filament_labels.sql
   migrations/011_print_slot_swaps.sql
+  migrations/012_spool_archived.sql
   seed_empty_spool_weights.json
   labels/                   Uploaded filament label PNGs (server volume; gitignored)
 Dockerfile                Multi-stage: npm build → Python Alpine
@@ -221,7 +224,7 @@ docker compose -f docker-compose.yml -f docker-compose.local.yml up --build
 ## API overview
 
 - `GET /api/dashboard`, `/api/stats`, `/api/alerts`
-- `GET/POST/PUT/DELETE /api/spools`, `/api/locations`
+- `GET/POST/PUT/DELETE /api/spools`, `/api/locations` — `PUT` accepts `archived` (bool); archiving clears AMS mappings for that spool
 - `PUT /api/filaments/:key` — bulk-update brand, material, colour name, and swatch for all spools in a filament group (key = URL-encoded `brand|material|color_name`); also updates matching `bambu_filament_rfid` learns and rekeys any stored filament label
 - `GET/POST/DELETE /api/filaments/:key/label` — upload (multipart field `label`), metadata, or delete the printable label for that filament type (png/jpg/webp/pdf)
 - `GET /api/labels/:filename` — serve a stored label (`?download=true` forces attachment)

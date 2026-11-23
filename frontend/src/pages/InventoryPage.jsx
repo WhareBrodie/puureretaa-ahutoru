@@ -3,12 +3,12 @@ import { Link } from 'react-router-dom';
 import { api, photoUrl } from '../api';
 import MoveSpoolModal from '../components/MoveSpoolModal';
 import SpoolRing from '../components/SpoolRing';
-import { formatWeight, groupSpoolsByLocation, isDepleted } from '../utils/filaments';
+import { formatWeight, groupSpoolsByLocation, isArchived } from '../utils/filaments';
 
 export default function InventoryPage() {
   const [spools, setSpools] = useState([]);
   const [locations, setLocations] = useState([]);
-  const [showDepleted, setShowDepleted] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
   const [moveSpool, setMoveSpool] = useState(null);
   const [error, setError] = useState('');
   const sectionRefs = useRef({});
@@ -25,9 +25,9 @@ export default function InventoryPage() {
   useEffect(load, [load]);
 
   const locationGroups = useMemo(() => {
-    const filtered = showDepleted ? spools : spools.filter((s) => !isDepleted(s));
+    const filtered = showArchived ? spools : spools.filter((s) => !isArchived(s));
     return groupSpoolsByLocation(filtered, locations);
-  }, [spools, locations, showDepleted]);
+  }, [spools, locations, showArchived]);
 
   const scrollToLocation = (locId) => {
     const id = locId ?? 'unassigned';
@@ -45,8 +45,8 @@ export default function InventoryPage() {
             <p>Find any spool by storage location</p>
           </div>
           <label className="toggle-label">
-            <input type="checkbox" checked={showDepleted} onChange={(e) => setShowDepleted(e.target.checked)} />
-            Show depleted
+            <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />
+            Show archived
           </label>
         </div>
 
@@ -83,6 +83,7 @@ export default function InventoryPage() {
                         <div className="inventory-spool-name">{spool.color_name || spool.material}</div>
                         <div className="inventory-spool-material">{spool.material}</div>
                         <div className="inventory-spool-weight muted">{formatWeight(spool.remaining_g)}</div>
+                        {isArchived(spool) && <span className="badge">Archived</span>}
                         {spool.qr_code_id && (
                           <div className="inventory-spool-id">{spool.qr_code_id.slice(0, 8)}</div>
                         )}

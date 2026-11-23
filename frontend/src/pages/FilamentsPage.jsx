@@ -12,7 +12,7 @@ export default function FilamentsPage() {
   const [locations, setLocations] = useState([]);
   const [search, setSearch] = useState('');
   const [material, setMaterial] = useState('');
-  const [showDepleted, setShowDepleted] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [editFilament, setEditFilament] = useState(null);
   const [error, setError] = useState('');
@@ -34,7 +34,7 @@ export default function FilamentsPage() {
   );
 
   const filaments = useMemo(() => {
-    let groups = groupSpoolsIntoFilaments(spools, { includeDepleted: showDepleted });
+    let groups = groupSpoolsIntoFilaments(spools, { includeArchived: showArchived });
     if (material) groups = groups.filter((f) => f.material === material);
     if (search.trim()) {
       const q = search.trim().toLowerCase();
@@ -46,7 +46,7 @@ export default function FilamentsPage() {
       );
     }
     return groups;
-  }, [spools, material, search, showDepleted]);
+  }, [spools, material, search, showArchived]);
 
   return (
     <>
@@ -72,8 +72,8 @@ export default function FilamentsPage() {
           ))}
         </select>
         <label className="toggle-label">
-          <input type="checkbox" checked={showDepleted} onChange={(e) => setShowDepleted(e.target.checked)} />
-          Show depleted spools
+          <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />
+          Show archived
         </label>
       </div>
 
@@ -119,6 +119,9 @@ export default function FilamentsPage() {
                   <td>
                     <Link to={`/filaments/${filament.key}`} className="filament-link">
                       <strong>{filament.color_name || `${filament.brand} ${filament.material}`}</strong>
+                      {filament.archived_only && (
+                        <div><span className="badge">Archived</span></div>
+                      )}
                       {filament.updated_at && (
                         <div className="muted filament-updated">
                           Updated {new Date(filament.updated_at).toLocaleDateString()}

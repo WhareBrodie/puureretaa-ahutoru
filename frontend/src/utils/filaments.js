@@ -9,8 +9,18 @@ export function parseFilamentKey(key) {
   return { brand, material, color_name: color_name || null };
 }
 
-export function isDepleted(spool) {
-  return (spool.remaining_g ?? 0) <= 0;
+/** Manual archive flag — zero remaining does not auto-archive. */
+export function isArchived(spool) {
+  return Boolean(spool.archived);
+}
+
+/** Spools available for AMS / review / manual-print selects (keep current selection). */
+export function spoolsForSelect(spools, selectedSpoolId = null) {
+  return spools.filter(
+    (spool) =>
+      !isArchived(spool)
+      || String(spool.id) === String(selectedSpoolId || ''),
+  );
 }
 
 /** Normalize Bambu / inventory material tokens for comparison. */
@@ -78,9 +88,10 @@ export function formatSpoolSelectLabel(spool) {
   return `${name} (${Math.round(spool.remaining_g ?? 0)}g)`;
 }
 
-export function groupSpoolsIntoFilaments(spools, { includeDepleted = false } = {}) {
+export function groupSpoolsIntoFilaments(spools, { includeArchived = false } = {}) {
   const stockByKey = new Map();
   for (const spool of spools) {
+    if (isArchived(spool)) continue;
     const key = `${spool.brand}|${spool.material}|${spool.color_name || ''}`;
     if (!stockByKey.has(key)) {
       stockByKey.set(key, {
@@ -91,10 +102,10 @@ export function groupSpoolsIntoFilaments(spools, { includeDepleted = false } = {
     }
     const stock = stockByKey.get(key);
     stock.total_remaining_g += spool.remaining_g || 0;
-    if (!isDepleted(spool)) stock.active_spool_count += 1;
+    stock.active_spool_count += 1;
   }
 
-  const filtered = includeDepleted ? spools : spools.filter((s) => !isDepleted(s));
+  const filtered = includeArchived ? spools : spools.filter((s) => !isArchived(s));
   const map = new Map();
 
   for (const spool of filtered) {
@@ -117,38 +128,43 @@ export function groupSpoolsIntoFilaments(spools, { includeDepleted = false } = {
     if (spool.color_hex && !group.color_hex) group.color_hex = spool.color_hex;
   }
 
-  // Include depleted-only filaments so no-stock types still appear in inventory views.
-  for (const spool of spools) {
-    const key = `${spool.brand}|${spool.material}|${spool.color_name || ''}`;
-    const stock = stockByKey.get(key);
-    if (!stock || stock.active_spool_count > 0 || map.has(key)) continue;
-    map.set(key, {
-      brand: spool.brand,
-      material: spool.material,
-      color_name: spool.color_name,
-      color_hex: spool.color_hex,
-      photo_path: spool.photo_path,
-      spools: spools.filter(
-        (item) =>
-          item.brand === spool.brand
-          && item.material === spool.material
-          && (item.color_name || '') === (spool.color_name || ''),
-      ),
-      updated_at: spool.updated_at,
-    });
+  // Include archived-only filaments when the toggle is on so retired types still appear.
+  if (includeArchived) {
+    for (const spool of spools) {
+      const key = `${spool.brand}|${spool.material}|${spool.color_name || ''}`;
+      if (map.has(key)) continue;
+      map.set(key, {
+        brand: spool.brand,
+        material: spool.material,
+        color_name: spool.color_name,
+        color_hex: spool.color_hex,
+        photo_path: spool.photo_path,
+        spools: spools.filter(
+          (item) =>
+            item.brand === spool.brand
+            && item.material === spool.material
+            && (item.color_name || '') === (spool.color_name || ''),
+        ),
+        updated_at: spool.updated_at,
+      });
+    }
   }
 
   return [...map.values()]
     .map((g) => {
       const stock = stockByKey.get(`${g.brand}|${g.material}|${g.color_name || ''}`);
+      const activeCount = stock?.active_spool_count ?? 0;
       return {
         ...g,
         key: filamentKey(g),
         spool_count: g.spools.length,
         total_remaining_g: stock?.total_remaining_g ?? 0,
-        total_capacity_g: g.spools.reduce((sum, s) => sum + (s.initial_weight_g || 1000), 0),
+        total_capacity_g: g.spools
+          .filter((s) => !isArchived(s))
+          .reduce((sum, s) => sum + (s.initial_weight_g || 1000), 0),
         low_stock_threshold_g: stock?.low_stock_threshold_g ?? 100,
-        no_stock: (stock?.active_spool_count ?? 0) === 0 && g.spools.length > 0,
+        no_stock: activeCount === 0 && g.spools.length > 0,
+        archived_only: activeCount === 0 && g.spools.every(isArchived),
       };
     })
     .map((g) => ({

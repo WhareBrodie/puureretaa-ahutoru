@@ -158,8 +158,8 @@ def create_spool(data: dict[str, Any]) -> dict[str, Any]:
                 brand, material, color_name, color_hex, purchase_price, purchase_date,
                 supplier, batch_number, rating, location_id, remaining_g, initial_weight_g,
                 empty_spool_weight_g, empty_spool_weight_id, nfc_tag_id, qr_code_id, bambu_tag_uid, bambu_tray_info_idx,
-                notes, low_stock_threshold_g
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                notes, low_stock_threshold_g, archived
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 brand,
@@ -182,6 +182,7 @@ def create_spool(data: dict[str, Any]) -> dict[str, Any]:
                 data.get("bambu_tray_info_idx"),
                 data.get("notes"),
                 data.get("low_stock_threshold_g") or 100,
+                1 if data.get("archived") else 0,
             ),
         )
         spool_id = cur.lastrowid
@@ -233,6 +234,8 @@ def update_spool(spool_id: int, data: dict[str, Any]) -> dict[str, Any]:
             "notes": payload.get("notes"),
             "low_stock_threshold_g": payload.get("low_stock_threshold_g"),
         }
+        if "archived" in payload:
+            fields["archived"] = 1 if payload.get("archived") else 0
         assignments = []
         values: list[Any] = []
         for key, value in fields.items():
@@ -245,6 +248,11 @@ def update_spool(spool_id: int, data: dict[str, Any]) -> dict[str, Any]:
             conn.execute(
                 f"UPDATE spools SET {', '.join(assignments)} WHERE id = ?",
                 values,
+            )
+        if "archived" in payload and payload.get("archived"):
+            conn.execute(
+                "UPDATE ams_slot_mappings SET spool_id = NULL, updated_at = datetime('now') WHERE spool_id = ?",
+                (spool_id,),
             )
     return get_spool(spool_id)
 

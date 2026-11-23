@@ -30,6 +30,7 @@ EXPORT_FIELDS = [
     "low_stock_threshold_g",
     "bambu_tag_uid",
     "qr_code_id",
+    "archived",
 ]
 
 SPOOLSTOCK_MARKERS = {"short_id", "filament.brand.name", "filament.material.name", "remaining_weight"}
@@ -42,7 +43,7 @@ def export_spools_csv() -> str:
             """
             SELECT id, brand, material, color_name, color_hex, purchase_price, purchase_date,
                    supplier, batch_number, rating, remaining_g, initial_weight_g, empty_spool_weight_g,
-                   location_id, notes, low_stock_threshold_g, bambu_tag_uid, qr_code_id
+                   location_id, notes, low_stock_threshold_g, bambu_tag_uid, qr_code_id, archived
             FROM spools ORDER BY id
             """
         ).fetchall()
@@ -51,7 +52,9 @@ def export_spools_csv() -> str:
     writer = csv.DictWriter(output, fieldnames=EXPORT_FIELDS)
     writer.writeheader()
     for row in data:
-        writer.writerow({field: row.get(field, "") for field in EXPORT_FIELDS})
+        out = {field: row.get(field, "") for field in EXPORT_FIELDS}
+        out["archived"] = 1 if row.get("archived") else 0
+        writer.writerow(out)
     return output.getvalue()
 
 
@@ -141,6 +144,7 @@ def spoolstock_row_to_payload(row: dict[str, str]) -> dict[str, Any]:
         "empty_spool_weight_g": _parse_optional_float(row.get("empty_spool.weight")),
         "notes": _combine_notes(row.get("notes"), row.get("filament.notes"), row.get("empty_spool.notes")),
         "qr_code_id": (row.get("short_id") or "").strip() or None,
+        "archived": _is_truthy(row.get("depleted")),
     }
 
 
@@ -163,6 +167,8 @@ def native_row_to_payload(row: dict[str, str]) -> dict[str, Any]:
         "bambu_tag_uid": row.get("bambu_tag_uid") or None,
         "qr_code_id": row.get("qr_code_id") or None,
     }
+    if "archived" in row and str(row.get("archived") or "").strip() != "":
+        payload["archived"] = _is_truthy(row.get("archived"))
     if row.get("location_id"):
         payload["location_id"] = int(row["location_id"])
     return payload

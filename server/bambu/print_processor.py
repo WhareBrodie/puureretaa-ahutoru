@@ -110,6 +110,7 @@ def resolve_spool_for_slot(
             """
             SELECT id, material, color_hex, brand, color_name FROM spools
             WHERE material = ? AND COALESCE(remaining_g, 0) > 0
+              AND COALESCE(archived, 0) = 0
             ORDER BY updated_at DESC
             """,
             (material.upper(),),

@@ -5,16 +5,18 @@ import {
   formatSpoolSelectLabel,
   formatUsageG,
   materialsCompatible,
+  spoolsForSelect,
 } from '../utils/filaments';
 
 function spoolsForUsage(spools, usageMaterial, selectedSpoolId) {
-  const matched = spools.filter(
+  const available = spoolsForSelect(spools, selectedSpoolId);
+  const matched = available.filter(
     (spool) =>
       String(spool.id) === String(selectedSpoolId || '')
       || materialsCompatible(usageMaterial, spool.material),
   );
   // Never leave the dropdown empty — naming mismatches should still allow manual pick.
-  const list = matched.length > 0 ? matched : spools;
+  const list = matched.length > 0 ? matched : available;
   return list.slice().sort(compareSpoolsForSelect);
 }
 

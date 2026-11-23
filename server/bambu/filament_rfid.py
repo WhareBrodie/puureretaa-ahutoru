@@ -129,6 +129,7 @@ def pick_active_spool(
         FROM spools
         WHERE brand = ? AND material = ? AND COALESCE(color_name, '') = COALESCE(?, '')
           AND COALESCE(remaining_g, 0) > 0
+          AND COALESCE(archived, 0) = 0
         ORDER BY id
         """,
         (_norm(brand), _norm(material).upper(), _norm(color_name) or None),

@@ -4,7 +4,7 @@ import { api, colorStyle, formatDate, labelDownloadUrl, labelUrl, photoUrl } fro
 import FilamentFormModal from '../components/FilamentFormModal';
 import SpoolFormModal from '../components/SpoolFormModal';
 import SpoolRing from '../components/SpoolRing';
-import { formatMoney, formatWeight, parseFilamentKey } from '../utils/filaments';
+import { formatMoney, formatWeight, isArchived, parseFilamentKey } from '../utils/filaments';
 import { colorSpecLabel } from '../utils/colors';
 
 const LABELGEN_URL = 'https://bambu-labelgen.socuul.dev/';
@@ -18,6 +18,7 @@ export default function FilamentDetailPage() {
   const [labelBusy, setLabelBusy] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [showFilamentForm, setShowFilamentForm] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
   const [editSpool, setEditSpool] = useState(null);
   const [error, setError] = useState('');
   const [labelError, setLabelError] = useState('');
@@ -58,12 +59,18 @@ export default function FilamentDetailPage() {
     [spools, filament],
   );
 
+  const visibleSpools = useMemo(
+    () => (showArchived ? matchingSpools : matchingSpools.filter((s) => !isArchived(s))),
+    [matchingSpools, showArchived],
+  );
+
   if (error) return <div className="card danger">{error}</div>;
 
-  const totalRemaining = matchingSpools.reduce((sum, s) => sum + (s.remaining_g || 0), 0);
-  const totalCapacity = matchingSpools.reduce((sum, s) => sum + (s.initial_weight_g || 1000), 0);
+  const activeSpools = matchingSpools.filter((s) => !isArchived(s));
+  const totalRemaining = activeSpools.reduce((sum, s) => sum + (s.remaining_g || 0), 0);
+  const totalCapacity = activeSpools.reduce((sum, s) => sum + (s.initial_weight_g || 1000), 0);
   const pct = totalCapacity ? Math.round((totalRemaining / totalCapacity) * 100) : 0;
-  const sample = matchingSpools[0];
+  const sample = activeSpools[0] || matchingSpools[0];
   const photo = sample ? photoUrl(sample) : null;
   const displayName = filament.color_name || `${filament.brand} ${filament.material}`;
   const previewUrl = labelUrl(label);
@@ -255,12 +262,28 @@ export default function FilamentDetailPage() {
       </div>
 
       <div className="spool-list-section">
-        <h2>Spools</h2>
-        {!matchingSpools.length ? (
-          <p className="muted">No spools for this filament yet.</p>
+        <div className="toolbar" style={{ marginBottom: '0.75rem' }}>
+          <h2 style={{ margin: 0, flex: 1 }}>Spools</h2>
+          {matchingSpools.some(isArchived) && (
+            <label className="toggle-label">
+              <input
+                type="checkbox"
+                checked={showArchived}
+                onChange={(e) => setShowArchived(e.target.checked)}
+              />
+              Show archived
+            </label>
+          )}
+        </div>
+        {!visibleSpools.length ? (
+          <p className="muted">
+            {matchingSpools.length
+              ? 'All spools for this filament are archived. Enable “Show archived” to see them.'
+              : 'No spools for this filament yet.'}
+          </p>
         ) : (
           <div className="spool-list">
-            {matchingSpools.map((spool) => (
+            {visibleSpools.map((spool) => (
                 <div key={spool.id} className="card spool-list-item spool-list-item-row">
                   <Link to={`/spools/${spool.id}`} className="spool-list-link">
                     <SpoolRing
@@ -273,6 +296,7 @@ export default function FilamentDetailPage() {
                       <span className="muted"> / {formatWeight(spool.initial_weight_g || 1000)}</span>
                     </div>
                     <div className="spool-list-meta">
+                      {isArchived(spool) && <span className="badge">Archived</span>}
                       {spool.location_name && (
                         <span className="badge location">📍 {spool.location_name}</span>
                       )}

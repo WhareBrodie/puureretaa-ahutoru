@@ -11,7 +11,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
 
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 12
 
 
 def get_root() -> Path:

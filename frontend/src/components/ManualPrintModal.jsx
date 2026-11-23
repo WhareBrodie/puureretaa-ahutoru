@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
-import { compareSpoolsForSelect, formatSpoolSelectLabel } from '../utils/filaments';
+import { compareSpoolsForSelect, formatSpoolSelectLabel, spoolsForSelect } from '../utils/filaments';
 
 export default function ManualPrintModal({ spools, onClose, onSaved }) {
   const [title, setTitle] = useState('');
@@ -60,7 +60,7 @@ export default function ManualPrintModal({ spools, onClose, onSaved }) {
           <div key={index} className="form-grid two">
             <label>Spool<select value={line.spool_id} onChange={(e) => updateLine(index, 'spool_id', e.target.value)}>
               <option value="">Select spool</option>
-              {[...spools].sort(compareSpoolsForSelect).map((spool) => (
+              {spoolsForSelect(spools, line.spool_id).sort(compareSpoolsForSelect).map((spool) => (
                 <option key={spool.id} value={spool.id}>{formatSpoolSelectLabel(spool)}</option>
               ))}
             </select></label>

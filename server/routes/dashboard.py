@@ -14,13 +14,15 @@ from routes.spools import list_spools
 
 
 def _filament_stock_groups() -> list[dict[str, Any]]:
-    """Group spools by brand+material+color and sum remaining weight (includes depleted-only filaments)."""
+    """Group spools by brand+material+color and sum remaining weight (archived excluded from stock)."""
     spools = list_spools()
     with connect() as conn:
         default_threshold = float(get_setting(conn, "default_low_stock_threshold_g", "100") or 100)
 
     groups: dict[str, dict[str, Any]] = {}
     for spool in spools:
+        if spool.get("archived"):
+            continue
         key = f"{spool['brand']}|{spool['material']}|{spool.get('color_name') or ''}"
         remaining = spool.get("remaining_g") or 0
         if key not in groups:
