@@ -34,7 +34,7 @@ Filament inventory and print tracking for a Bambu Lab P1S with full AMS, inspire
 
 Each spool links to an **empty spool profile** (tare weight). Weigh-in: `filament_g = scale_total_g − empty_spool_weight_g`. `last_weighed_at` is set on every scale update — use it to know when estimates were last anchored.
 
-**Archive spool:** from the spool detail page (**Archive spool** / **Restore**). Manual only — reaching 0g never auto-archives (in case weigh/sync estimates are off). Archived spools are hidden from AMS mapping, review, and manual-print dropdowns, and from Filaments / Inventory / filament detail lists unless **Show archived** is on. Archiving clears any AMS slot mapped to that spool. SpoolStock CSV `depleted=true` imports as `archived=1`.
+**Archive spool:** from the spool detail page header (**Archive spool** / **Restore spool**, next to Edit). Manual only — reaching 0g never auto-archives (in case weigh/sync estimates are off). Already-archived spools show **Restore spool** and an “Archived” label in the subtitle. Archived spools are hidden from AMS mapping, review, and manual-print dropdowns, and from Filaments / Inventory / filament detail lists unless **Show archived** is on. Archiving clears any AMS slot mapped to that spool. SpoolStock CSV `depleted=true` imports as `archived=1`. SPA `index.html` is served with `Cache-Control: no-store` so deploys are not stuck behind a cached old shell.
 
 `color_hex` accepts a plain hex (`#RRGGBB`) or JSON for multi-colour: `{"mode":"rainbow"}`, or `{"mode":"multi","colors":["#A","#B",...]}` (2–9 colours; dual = 2).
 

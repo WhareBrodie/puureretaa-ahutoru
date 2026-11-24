@@ -35,6 +35,16 @@ class PureretaHandler(SimpleHTTPRequestHandler):
     def log_message(self, format: str, *args: Any) -> None:
         sys.stderr.write("%s - - [%s] %s\n" % (self.address_string(), self.log_date_time_string(), format % args))
 
+    def end_headers(self) -> None:
+        # index.html must not be cached or browsers keep an old SPA shell that
+        # points at pre-deploy JS (e.g. missing Archive spool after a redeploy).
+        path = urlparse(getattr(self, "path", "") or "").path
+        if path in {"/", "/index.html"} or path.endswith(".html"):
+            self.send_header("Cache-Control", "no-store, max-age=0, must-revalidate")
+        elif "/assets/" in path:
+            self.send_header("Cache-Control", "public, max-age=31536000, immutable")
+        super().end_headers()
+
     def end_json(self, status: int, payload: Any) -> None:
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
