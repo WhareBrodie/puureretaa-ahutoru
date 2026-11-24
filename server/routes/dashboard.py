@@ -14,17 +14,20 @@ from routes.spools import list_spools
 
 
 def _filament_stock_groups() -> list[dict[str, Any]]:
-    """Group spools by brand+material+color and sum remaining weight (archived excluded from stock)."""
+    """Group spools by brand+material+color.
+
+    Archived spools do not add to remaining weight. If every spool for a
+    filament type is archived (or all non-archived are at 0g), the group is
+    no_stock so Low / no stock still surfaces types you have run out of.
+    """
     spools = list_spools()
     with connect() as conn:
         default_threshold = float(get_setting(conn, "default_low_stock_threshold_g", "100") or 100)
 
     groups: dict[str, dict[str, Any]] = {}
     for spool in spools:
-        if spool.get("archived"):
-            continue
         key = f"{spool['brand']}|{spool['material']}|{spool.get('color_name') or ''}"
-        remaining = spool.get("remaining_g") or 0
+        archived = bool(spool.get("archived"))
         if key not in groups:
             groups[key] = {
                 "brand": spool["brand"],
@@ -37,15 +40,20 @@ def _filament_stock_groups() -> list[dict[str, Any]]:
                 "threshold_g": spool.get("low_stock_threshold_g") or default_threshold,
             }
         group = groups[key]
-        group["total_remaining_g"] += remaining
-        group["spool_count"] += 1
-        if remaining > 0:
-            group["active_spool_count"] += 1
+        if not archived:
+            remaining = spool.get("remaining_g") or 0
+            group["total_remaining_g"] += remaining
+            group["spool_count"] += 1
+            if remaining > 0:
+                group["active_spool_count"] += 1
+            if spool.get("low_stock_threshold_g") is not None:
+                group["threshold_g"] = spool.get("low_stock_threshold_g") or default_threshold
         if spool.get("color_hex") and not group.get("color_hex"):
             group["color_hex"] = spool["color_hex"]
 
     for group in groups.values():
-        group["no_stock"] = group["active_spool_count"] == 0 and group["spool_count"] > 0
+        # Archived-only (spool_count 0) or all non-archived at 0g → no stock.
+        group["no_stock"] = group["active_spool_count"] == 0
 
     return list(groups.values())
 
@@ -82,7 +90,9 @@ def get_low_stock_alerts() -> list[dict[str, Any]]:
         totals = conn.execute(
             """
             SELECT material, SUM(COALESCE(remaining_g, 0)) AS total_g
-            FROM spools GROUP BY material
+            FROM spools
+            WHERE COALESCE(archived, 0) = 0
+            GROUP BY material
             """
         ).fetchall()
         for row in totals:
