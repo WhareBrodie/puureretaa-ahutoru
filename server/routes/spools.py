@@ -132,11 +132,20 @@ def create_spool(data: dict[str, Any]) -> dict[str, Any]:
     if not brand or not material:
         raise ValueError("brand and material are required")
 
-    qr_code_id = data.get("qr_code_id") or uuid.uuid4().hex[:12].upper()
+    try:
+        quantity = int(data.get("quantity") or 1)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("quantity must be an integer") from exc
+    if quantity < 1 or quantity > 50:
+        raise ValueError("quantity must be between 1 and 50")
+
     remaining = data.get("remaining_g")
     initial = data.get("initial_weight_g") or 1000
     if remaining is None:
         remaining = initial
+
+    # Explicit qr_code_id only applies when creating a single spool.
+    fixed_qr = data.get("qr_code_id") if quantity == 1 else None
 
     with connect() as conn:
         empty_spool_weight_id = data.get("empty_spool_weight_id")
@@ -152,41 +161,49 @@ def create_spool(data: dict[str, Any]) -> dict[str, Any]:
             empty_spool_weight_g = resolved_empty
         elif empty_spool_weight_id:
             empty_spool_weight_g = resolved_empty
-        cur = conn.execute(
-            """
-            INSERT INTO spools (
-                brand, material, color_name, color_hex, purchase_price, purchase_date,
-                supplier, batch_number, rating, location_id, remaining_g, initial_weight_g,
-                empty_spool_weight_g, empty_spool_weight_id, nfc_tag_id, qr_code_id, bambu_tag_uid, bambu_tray_info_idx,
-                notes, low_stock_threshold_g, archived
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                brand,
-                material.upper(),
-                data.get("color_name"),
-                _normalize_hex(data.get("color_hex")),
-                data.get("purchase_price"),
-                data.get("purchase_date"),
-                data.get("supplier"),
-                data.get("batch_number"),
-                data.get("rating"),
-                data.get("location_id"),
-                remaining,
-                initial,
-                empty_spool_weight_g if empty_spool_weight_g is not None else resolved_empty,
-                empty_spool_weight_id if empty_spool_weight_id is not None else resolved_profile_id,
-                data.get("nfc_tag_id"),
-                qr_code_id,
-                data.get("bambu_tag_uid"),
-                data.get("bambu_tray_info_idx"),
-                data.get("notes"),
-                data.get("low_stock_threshold_g") or 100,
-                1 if data.get("archived") else 0,
-            ),
-        )
-        spool_id = cur.lastrowid
-    return get_spool(spool_id)
+
+        spool_id = None
+        for _ in range(quantity):
+            qr_code_id = fixed_qr or uuid.uuid4().hex[:12].upper()
+            cur = conn.execute(
+                """
+                INSERT INTO spools (
+                    brand, material, color_name, color_hex, purchase_price, purchase_date,
+                    supplier, batch_number, rating, location_id, remaining_g, initial_weight_g,
+                    empty_spool_weight_g, empty_spool_weight_id, nfc_tag_id, qr_code_id, bambu_tag_uid, bambu_tray_info_idx,
+                    notes, low_stock_threshold_g, archived
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    brand,
+                    material.upper(),
+                    data.get("color_name"),
+                    _normalize_hex(data.get("color_hex")),
+                    data.get("purchase_price"),
+                    data.get("purchase_date"),
+                    data.get("supplier"),
+                    data.get("batch_number"),
+                    data.get("rating"),
+                    data.get("location_id"),
+                    remaining,
+                    initial,
+                    empty_spool_weight_g if empty_spool_weight_g is not None else resolved_empty,
+                    empty_spool_weight_id if empty_spool_weight_id is not None else resolved_profile_id,
+                    data.get("nfc_tag_id"),
+                    qr_code_id,
+                    data.get("bambu_tag_uid"),
+                    data.get("bambu_tray_info_idx"),
+                    data.get("notes"),
+                    data.get("low_stock_threshold_g") or 100,
+                    1 if data.get("archived") else 0,
+                ),
+            )
+            spool_id = cur.lastrowid
+    created = get_spool(spool_id)
+    if quantity > 1:
+        created = dict(created)
+        created["created_count"] = quantity
+    return created
 
 
 def update_spool(spool_id: int, data: dict[str, Any]) -> dict[str, Any]:

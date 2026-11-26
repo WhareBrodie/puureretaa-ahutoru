@@ -224,7 +224,7 @@ docker compose -f docker-compose.yml -f docker-compose.local.yml up --build
 ## API overview
 
 - `GET /api/dashboard`, `/api/stats`, `/api/alerts`
-- `GET/POST/PUT/DELETE /api/spools`, `/api/locations` — `PUT` accepts `archived` (bool); archiving clears AMS mappings for that spool
+- `GET/POST/PUT/DELETE /api/spools`, `/api/locations` — `POST` accepts optional `quantity` (1–50, default 1) to create identical spools in one go (unique QR each); `PUT` accepts `archived` (bool); archiving clears AMS mappings for that spool
 - `PUT /api/filaments/:key` — bulk-update brand, material, colour name, and swatch for all spools in a filament group (key = URL-encoded `brand|material|color_name`); also updates matching `bambu_filament_rfid` learns and rekeys any stored filament label
 - `GET/POST/DELETE /api/filaments/:key/label` — upload (multipart field `label`), metadata, or delete the printable label for that filament type (png/jpg/webp/pdf)
 - `GET /api/labels/:filename` — serve a stored label (`?download=true` forces attachment)

@@ -18,6 +18,7 @@ const emptyForm = {
   empty_spool_weight_g: '',
   notes: '',
   low_stock_threshold_g: 100,
+  quantity: 1,
 };
 
 function profileLabel(entry) {
@@ -58,6 +59,9 @@ export default function SpoolFormModal({ locations, spool, onClose, onSaved }) {
     }));
   };
 
+  const isEdit = Boolean(spool?.id);
+  const quantity = Math.max(1, Math.min(50, Number(form.quantity) || 1));
+
   const submit = async (event) => {
     event.preventDefault();
     try {
@@ -72,9 +76,11 @@ export default function SpoolFormModal({ locations, spool, onClose, onSaved }) {
         empty_spool_weight_g: form.empty_spool_weight_g ? Number(form.empty_spool_weight_g) : null,
         low_stock_threshold_g: Number(form.low_stock_threshold_g || 100),
       };
-      if (spool?.id) {
+      if (isEdit) {
+        delete payload.quantity;
         await api.spools.update(spool.id, payload);
       } else {
+        payload.quantity = quantity;
         await api.spools.create(payload);
       }
       onSaved();
@@ -86,12 +92,25 @@ export default function SpoolFormModal({ locations, spool, onClose, onSaved }) {
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <form className="card modal form-grid" onClick={(e) => e.stopPropagation()} onSubmit={submit}>
-        <h2>{spool?.id ? 'Edit spool' : 'Add spool'}</h2>
+        <h2>{isEdit ? 'Edit spool' : 'Add spool'}</h2>
         {error && <div className="danger">{error}</div>}
         <div className="form-grid two">
           <label>Brand<input value={form.brand} onChange={(e) => update('brand', e.target.value)} required /></label>
           <label>Material<input value={form.material} onChange={(e) => update('material', e.target.value)} required /></label>
           <label>Color name<input value={form.color_name} onChange={(e) => update('color_name', e.target.value)} /></label>
+          {!isEdit && (
+            <label>
+              Quantity
+              <input
+                type="number"
+                min={1}
+                max={50}
+                step={1}
+                value={form.quantity ?? 1}
+                onChange={(e) => update('quantity', e.target.value)}
+              />
+            </label>
+          )}
         </div>
         <ColorPickerField value={form.color_hex} onChange={(value) => update('color_hex', value)} />
         <div className="form-grid two">
@@ -137,7 +156,9 @@ export default function SpoolFormModal({ locations, spool, onClose, onSaved }) {
         </div>
         <label>Notes<textarea rows={3} value={form.notes || ''} onChange={(e) => update('notes', e.target.value)} /></label>
         <div className="toolbar">
-          <button type="submit">Save spool</button>
+          <button type="submit">
+            {isEdit ? 'Save spool' : quantity > 1 ? `Add ${quantity} spools` : 'Add spool'}
+          </button>
           <button type="button" className="secondary" onClick={onClose}>Cancel</button>
         </div>
       </form>
